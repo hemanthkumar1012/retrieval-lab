@@ -1,7 +1,7 @@
 # Deploying
 
-The code is ready to deploy. Nothing here has been run against Supabase, Upstash or a
-host yet, so treat the first deploy as the test and check each step below.
+The code is ready to deploy. Nothing here has been run against a real host
+yet, so treat the first deploy as the test and check each step below.
 
 ```
 browser ──> API container (FastAPI + 2 models) ──> Supabase Postgres (pgvector)
@@ -48,7 +48,8 @@ Do that if you run more than one API instance, so they share the cache and the l
 ## 4. API host
 
 Any host that runs a Docker image: Render, Railway, Fly.io, or a Hugging Face Space
-(Docker SDK). The image honours `PORT`. Models are baked into it, so cold starts do not
+(Docker SDK, free CPU, 16 GB RAM). The image honours `PORT`. The `deploy-space` workflow copies
+the repo into a Space on every push once `HF_TOKEN` (secret) and `HF_SPACE` (variable) are set. Models are baked into it, so cold starts do not
 download anything. Expect to need around 1 GB of RAM (two models plus PyTorch); measure it
 with `docker stats` and avoid 512 MB tiers.
 

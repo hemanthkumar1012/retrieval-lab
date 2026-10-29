@@ -1,0 +1,34 @@
+name: deploy-space
+
+# Copies the repo into a Hugging Face Space (Docker SDK) so the Space builds and runs the API.
+# Needs a repository secret HF_TOKEN (write token) and a repository variable HF_SPACE such
+# as "hemanthkumar1012/retrieval-lab". Without both it does nothing.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  space:
+    runs-on: ubuntu-latest
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      SPACE: ${{ vars.HF_SPACE }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: sync to the Space
+        if: env.HF_TOKEN != '' && env.SPACE != ''
+        run: |
+          git clone --depth 1 "https://user:${HF_TOKEN}@huggingface.co/spaces/${SPACE}" space
+          rsync -a --delete --exclude .git --exclude .github --exclude tests --exclude docs ./ space/ --exclude space
+          # Spaces read their settings from front matter at the top of README.md
+          { printf -- '---\ntitle: retrieval-lab\nemoji: 🔎\nsdk: docker\npinned: false\n---\n\n'; cat README.md; } > space/README.md
+          # Spaces expect the app on port 7860
+          sed -i 's/^ENV PORT=8000/ENV PORT=7860/' space/Dockerfile
+          cd space
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "nothing to push"; exit 0; }
+          git commit -q -m "Sync from GitHub ${GITHUB_SHA::7}"
+          git push

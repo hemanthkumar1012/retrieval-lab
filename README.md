@@ -90,7 +90,8 @@ the full docker compose stack.
 
 ## Deploy
 
-Supabase for Postgres + pgvector, Upstash for Redis, any Docker host for the API. Step by
+Supabase for Postgres + pgvector, any Docker host for the API (a Hugging Face Space works).
+Redis is built into the container unless you point `REDIS_URL` at a hosted one. Step by
 step, with the environment variables, in [docs/deploy.md](docs/deploy.md). `ADMIN_TOKEN`
 should be set on anything public.
 

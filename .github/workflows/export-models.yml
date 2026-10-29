@@ -24,10 +24,13 @@ jobs:
           python-version: "3.12"
       - name: install export tooling
         run: |
-          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-          pip install "optimum[exporters]==1.23.3" sentence-transformers==3.2.1 onnxruntime==1.20.1 \
-            numpy==1.26.4 tokenizers==0.20.3 datasets==3.1.0 pyarrow==17.0.0 \
+          # one resolver run so the torch pin holds: optimum's exporter targets the TorchScript
+          # path, which newer torch releases no longer use by default
+          pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+            "torch==2.5.1" "optimum[exporters]==1.23.3" sentence-transformers==3.2.1 \
+            onnxruntime==1.20.1 numpy==1.26.4 tokenizers==0.20.3 datasets==3.1.0 pyarrow==17.0.0 \
             pydantic==2.9.2 pydantic-settings==2.6.1
+          pip list 2>/dev/null | grep -i -E "^(torch|transformers|optimum|onnx|onnxruntime|numpy) "
       - name: export, quantise, compare with fp32
         run: |
           set +e

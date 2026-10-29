@@ -1,14 +1,10 @@
 name: export-models
 
 # Builds the int8 ONNX models the API runs on, checks them against the original PyTorch
-# weights, and commits models/ back to main. Runs when the export script or this file
-# changes; the models are not rebuilt on every push.
+# weights, and commits models/ back to the branch it ran on. Manual only: the models are
+# committed, so rebuilding them on every merge would just add 56 MB of history each time.
 on:
-  push:
-    branches: [main, onnx]
-    paths:
-      - scripts/export_models.py
-      - .github/workflows/export-models.yml
+  workflow_dispatch:
 
 permissions:
   contents: write

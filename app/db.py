@@ -13,7 +13,7 @@ def _configure(conn):
 pool = ConnectionPool(
     settings.database_url,
     min_size=1,
-    max_size=8,
+    max_size=settings.db_pool_max,
     configure=_configure,
     # psycopg switches to server-side prepared statements after a few repeats of a
     # query. Supabase's transaction pooler (pgbouncer) hands each transaction to an
@@ -34,5 +34,7 @@ def close_pool():
 
 @contextmanager
 def conn():
+    if pool.closed:
+        pool.open()
     with pool.connection() as c:
         yield c

@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
   pull_request:
 
 jobs:
@@ -12,15 +12,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: pytest -q
 
-  # Runs the retrieval SQL against a real pgvector, so a change that quietly shrinks
-  # result sets (the benchmark would still "work") fails here instead.
+  # Runs the retrieval, cache and rate-limit SQL against a real pgvector, so a change that
+  # quietly shrinks result sets (the benchmark would still "work") fails here instead.
   sql:
     runs-on: ubuntu-latest
     services:
@@ -43,14 +43,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: requirements-ci.txt
       - run: pip install -r requirements-ci.txt
       - run: pytest -q tests/test_sql_integration.py
 
+  # Vercel functions are limited to 500 MB (dependencies + code + models). Fail well before.
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          pip install -r requirements.txt --target /tmp/site --quiet
+          du -sm /tmp/site models app | tee sizes.txt
+          total=$(awk '{s += $1} END {print s}' sizes.txt)
+          echo "function bundle is about ${total} MB (Vercel limit: 500)"
+          [ "$total" -lt 400 ]
+
   # Builds the image, starts the real stack and runs the smoke test against it: this is what
-  # catches broken dependency pins or an API that no longer starts.
+  # catches broken dependency pins, missing model files, or an API that no longer starts.
   e2e:
     runs-on: ubuntu-latest
     needs: test
@@ -66,9 +81,13 @@ jobs:
           done
           docker compose logs api | tail -50
           exit 1
-      - run: bash scripts/smoke.sh
-      # same image with no REDIS_URL: it must start its own Redis and actually use it
-      - name: single-container mode (embedded Redis)
+      - name: Redis backend (docker compose)
+        run: |
+          curl -s localhost:8000/health | grep -q '"cache":"redis"'
+          bash scripts/smoke.sh
+      # same image with no REDIS_URL, which is how the Vercel deploy runs: the cache and the
+      # rate limiter must fall back to Postgres and actually use it
+      - name: Postgres backend (no REDIS_URL)
         run: |
           docker run -d --name solo --network retrieval-lab_default \
             -e DATABASE_URL=postgresql://rag:rag@db:5432/rag -p 8001:8000 retrieval-lab-api
@@ -76,9 +95,11 @@ jobs:
             curl -sf localhost:8001/health >/dev/null && break
             sleep 5
           done
+          curl -s localhost:8001/health | grep -q '"cache":"postgres"'
           bash scripts/smoke.sh http://localhost:8001
-          docker exec solo redis-cli ping | grep -q PONG
-          docker exec solo redis-cli keys 'rl:*' | grep -q 'rl:'
+          n=$(docker exec retrieval-lab-db-1 psql -U rag -d rag -tAc "select coalesce(sum(n), 0) from rate_limits")
+          echo "rate-limit hits recorded in Postgres: $n"
+          [ "$n" -gt 0 ]
       - if: failure()
         run: |
           docker compose logs api | tail -60

@@ -5,10 +5,13 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql://rag:rag@localhost:5432/rag"
-    redis_url: str = "redis://localhost:6379/0"
+    # empty means the semantic cache and rate limits live in Postgres (serverless deploys)
+    redis_url: str = ""
+    db_pool_max: int = 8  # keep small (2-3) on serverless: every instance has its own pool
 
-    embed_model: str = "BAAI/bge-small-en-v1.5"
-    rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # ONNX exports of BAAI/bge-small-en-v1.5 and cross-encoder/ms-marco-MiniLM-L-6-v2 (see
+    # scripts/export_models.py). Empty means the models/ folder at the repo root.
+    models_dir: str = ""
     embed_dim: int = 384
 
     llm_base_url: str = "https://api.openai.com/v1"

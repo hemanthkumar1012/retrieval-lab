@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import cache, ratelimit
+from . import cache
 from .chunking import STRATEGIES
 from .config import settings
 from .db import close_pool, conn, open_pool
@@ -60,7 +60,7 @@ def rate_limit(request: Request):
     if limit <= 0:
         return
     ip = request.client.host if request.client else "unknown"
-    if not ratelimit.allow(cache.client(), f"rl:{ip}", limit):
+    if not cache.rate_limit_allow(f"rl:{ip}", limit):
         raise HTTPException(429, "rate limit exceeded, try again in a minute")
 
 
@@ -112,7 +112,7 @@ def demo():
 def health():
     with conn() as c:
         n = c.execute("SELECT count(*) FROM chunks").fetchone()[0]
-    return {"ok": True, "chunks": n}
+    return {"ok": True, "chunks": n, "cache": cache.BACKEND}
 
 
 @app.post("/ingest", dependencies=[Depends(require_admin)])

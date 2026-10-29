@@ -4,25 +4,30 @@ Sizes are counted in tokens (cl100k_base via tiktoken) so that "256" means the
 same thing across strategies. The benchmark compares them on the same corpus.
 """
 import re
+from functools import lru_cache
 from typing import Callable
 
-import tiktoken
 
-_enc = tiktoken.get_encoding("cl100k_base")
+@lru_cache(maxsize=1)
+def _encoder():
+    # lazy: the vocab is downloaded on first use, which must not happen at API cold start
+    import tiktoken
+
+    return tiktoken.get_encoding("cl100k_base")
 
 
 def n_tokens(text: str) -> int:
-    return len(_enc.encode(text))
+    return len(_encoder().encode(text))
 
 
 def fixed(text: str, size: int = 256, overlap: int = 0) -> list[str]:
-    ids = _enc.encode(text)
+    ids = _encoder().encode(text)
     step = max(size - overlap, 1)
     out = []
     for start in range(0, len(ids), step):
         piece = ids[start:start + size]
         if piece:
-            out.append(_enc.decode(piece))
+            out.append(_encoder().decode(piece))
         if start + size >= len(ids):
             break
     return out
@@ -85,7 +90,7 @@ def recursive(text: str, size: int = 256, overlap: int = 32) -> list[str]:
         n = n_tokens(p)
         if cur and cur_len + n > size:
             chunks.append(" ".join(cur))
-            tail = _enc.decode(_enc.encode(chunks[-1])[-overlap:]) if overlap else ""
+            tail = _encoder().decode(_encoder().encode(chunks[-1])[-overlap:]) if overlap else ""
             cur = [tail] if tail else []
             cur_len = n_tokens(tail) if tail else 0
         cur.append(p)

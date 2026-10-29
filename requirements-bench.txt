@@ -1,0 +1,4 @@
+# only the benchmark scripts need these
+datasets==3.1.0
+pyarrow==17.0.0  # newer pyarrow needs NumPy 2, which would break numpy==1.26.4 in requirements.txt
+tabulate==0.9.0

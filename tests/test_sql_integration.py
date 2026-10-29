@@ -31,7 +31,9 @@ PER_STRATEGY = 300
 
 os.environ["DATABASE_URL"] = URL  # before app.db builds its pool
 
+from app import cache_pg  # noqa: E402
 from app.db import close_pool, conn, open_pool  # noqa: E402
+from app.ratelimit import allow_pg  # noqa: E402
 from app.retrieval import dense_search_vec, lexical_search  # noqa: E402
 
 
@@ -104,3 +106,29 @@ def test_lexical_matches_natural_language_questions(vectors):
 
 def test_lexical_stopword_only_query_returns_nothing(vectors):
     assert lexical_search("is it the", "lex", 5) == []
+
+
+def test_postgres_cache_hit_miss_and_scope(vectors):
+    cache_pg.clear()
+    q = vectors["a"][0]
+    assert cache_pg.lookup(q, "recursive_256", "hybrid") is None
+
+    cache_pg.store("what is x", q, "recursive_256", "hybrid", {"answer": "x", "sources": []})
+    hit = cache_pg.lookup(q, "recursive_256", "hybrid")
+    assert hit and hit["answer"] == "x" and hit["cache_similarity"] > 0.99
+
+    # another retrieval configuration, or an unrelated question, must not hit
+    assert cache_pg.lookup(q, "recursive_256", "dense") is None
+    assert cache_pg.lookup(vectors["b"][1], "recursive_256", "hybrid") is None
+
+    # storing the same question again replaces it instead of piling up
+    cache_pg.store("what is x", q, "recursive_256", "hybrid", {"answer": "y", "sources": []})
+    assert cache_pg.lookup(q, "recursive_256", "hybrid")["answer"] == "y"
+    assert cache_pg.clear() == 1
+
+
+def test_postgres_rate_limiter(vectors):
+    results = [allow_pg("rl:test-ip", 3, now=1000) for _ in range(5)]
+    assert results == [True, True, True, False, False]
+    assert allow_pg("rl:other-ip", 3, now=1000)  # keys are independent
+    assert allow_pg("rl:test-ip", 3, now=1060)  # the next window starts fresh

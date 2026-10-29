@@ -1,4 +1,4 @@
-# the light subset needed to run the SQL integration tests (no torch, no models)
+# the light subset needed to run the SQL integration tests (no onnxruntime, no models)
 pytest==8.3.3
 psycopg[binary,pool]==3.2.3
 pgvector==0.3.6

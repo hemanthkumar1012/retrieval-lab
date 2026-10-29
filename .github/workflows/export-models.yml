@@ -1,0 +1,42 @@
+name: export-models
+
+# Builds the int8 ONNX models the API runs on, checks them against the original PyTorch
+# weights, and commits models/ back to main. Runs when the export script or this file
+# changes; the models are not rebuilt on every push.
+on:
+  push:
+    branches: [main, onnx]
+    paths:
+      - scripts/export_models.py
+      - .github/workflows/export-models.yml
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: install export tooling
+        run: |
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install "optimum[exporters]==1.23.3" sentence-transformers==3.2.1 onnxruntime==1.20.1 \
+            numpy==1.26.4 tokenizers==0.20.3 datasets==3.1.0 pyarrow==17.0.0 \
+            pydantic==2.9.2 pydantic-settings==2.6.1
+      - name: export, quantise, compare with fp32
+        run: python scripts/export_models.py
+      - name: show what was produced
+        run: ls -l models/*/ && cat models/PARITY.md >> "$GITHUB_STEP_SUMMARY"
+      - name: commit models
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add models
+          git diff --cached --quiet && { echo "models unchanged"; exit 0; }
+          git commit -q -m "Add int8 ONNX models and parity report"
+          git push origin HEAD:"${GITHUB_REF_NAME}"

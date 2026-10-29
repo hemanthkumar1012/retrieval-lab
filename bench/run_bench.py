@@ -48,9 +48,17 @@ def load_scifact(limit: int | None):
     return docs, test_qs, rel, len(corpus)
 
 
-def chunks_present(strategy: str) -> int:
+def scifact_docs_present(strategy: str, ids: list[str]) -> tuple[int, int]:
+    """(SciFact docs stored for this strategy, all docs stored for this strategy)."""
     with conn() as c:
-        return c.execute("SELECT count(*) FROM chunks WHERE strategy = %s", (strategy,)).fetchone()[0]
+        have = c.execute(
+            "SELECT count(DISTINCT doc_id) FROM chunks WHERE strategy = %s AND doc_id = ANY(%s)",
+            (strategy, ids),
+        ).fetchone()[0]
+        total = c.execute(
+            "SELECT count(DISTINCT doc_id) FROM chunks WHERE strategy = %s", (strategy,)
+        ).fetchone()[0]
+    return have, total
 
 
 def run_config(strategy: str, mode: str, queries, rel, ks=(1, 5, 10)):
@@ -92,17 +100,23 @@ def main():
 
     docs, queries, rel, n_docs = load_scifact(args.limit)
     docs = list(docs)
+    ids = [d["id"] for d in docs]
     print(f"SciFact: {n_docs} docs, {len(queries)} test queries")
 
     open_pool()
     try:
         for s in args.strategies:
-            if chunks_present(s):
-                print(f"[{s}] already ingested, skipping")
-                continue
-            t = time.time()
-            n = ingest(iter(docs), s)
-            print(f"[{s}] {n} chunks in {time.time() - t:.0f}s")
+            have, total = scifact_docs_present(s, ids)
+            if have == len(ids):
+                print(f"[{s}] SciFact already ingested, skipping")
+            else:
+                t = time.time()
+                n = ingest(iter(docs), s)
+                print(f"[{s}] {n} chunks in {time.time() - t:.0f}s")
+                have, total = scifact_docs_present(s, ids)
+            if total > have:
+                print(f"[{s}] warning: {total - have} documents outside SciFact are also stored for "
+                      "this strategy and act as extra distractors, so numbers are not comparable")
 
         # one throwaway query per mode so model load time doesn't land in p95
         for m in args.modes:

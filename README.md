@@ -61,8 +61,9 @@ candidates here (the API default is 50), so latency reflects that.
 
 ### Results
 
-_Not filled in yet. Run `make bench` on your machine and paste `bench/results/scifact.md`
-here; numbers depend on hardware, so the table should be your own._
+_Not filled in yet. Run `make bench` and paste `bench/results/scifact.md` here, or use the
+**bench** workflow (Actions tab, Run workflow), which runs it on a GitHub runner and prints
+both tables in the job summary. Latency depends on the machine, so say which one you used._
 
 ## Semantic cache
 
@@ -81,8 +82,11 @@ make test
 ```
 
 Unit tests cover rank fusion, the evaluation metrics, the chunkers and the rate limiter, and
-need no database. `make test-sql` runs the retrieval SQL against a real pgvector (CI does the
-same in a service container). CI runs lint, unit tests, the SQL tests and a Docker build.
+need no database. `make smoke` ingests three documents into a running API and checks every
+retrieval mode and the streaming endpoint (it adds three `smoke-*` documents to the
+`fixed_128` strategy). `make test-sql` runs the retrieval SQL against a real pgvector (CI does the
+same in a service container). CI runs lint, unit tests, the SQL tests, and the smoke test against
+the full docker compose stack.
 
 ## Deploy
 

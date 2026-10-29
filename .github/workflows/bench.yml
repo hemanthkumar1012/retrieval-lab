@@ -1,0 +1,50 @@
+name: bench
+
+# Runs the full SciFact benchmark on a GitHub runner and puts the tables in the job summary.
+# Actions tab -> bench -> Run workflow. Latency depends on the runner, so quote it as such.
+on:
+  workflow_dispatch:
+    inputs:
+      strategies:
+        description: chunking strategies, space separated (all six take several hours)
+        default: "recursive_256 fixed_256 sentence_256"
+      limit:
+        description: only the first N test queries (empty means all 300)
+        default: ""
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose up -d --build
+      - name: retrieval benchmark
+        env:
+          STRATEGIES: ${{ inputs.strategies }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          # shellcheck disable=SC2086
+          docker compose exec -T api python -m bench.run_bench --strategies $STRATEGIES ${LIMIT:+--limit "$LIMIT"}
+      - name: cache threshold benchmark
+        run: docker compose exec -T api python -m bench.cache_bench
+      - name: publish results
+        run: |
+          mkdir -p results
+          docker compose cp api:/srv/bench/results/. results/
+          {
+            echo "## Retrieval benchmark (BEIR SciFact test)"
+            echo
+            echo "Strategies: \`${{ inputs.strategies }}\`, queries: \`${{ inputs.limit || 'all' }}\`, runner: \`ubuntu-latest\`"
+            echo
+            cat results/scifact.md
+            echo
+            echo "## Semantic cache thresholds"
+            echo
+            cat results/cache.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: results

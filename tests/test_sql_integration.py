@@ -2,8 +2,13 @@
 
     TEST_DATABASE_URL=postgresql://rag:rag@localhost:5432/rag pytest tests/test_sql_integration.py
 
-Skipped when TEST_DATABASE_URL is not set. The test only touches rows whose strategy
-starts with `_t_` and whose document id starts with `_t_`, and removes them afterwards.
+Skipped when TEST_DATABASE_URL is not set. Everything happens in a throwaway schema
+(`_t_rl`) that is dropped afterwards; the `public` tables are never touched.
+
+That schema deliberately has only the HNSW index on `chunks` (the btree on `strategy` is
+dropped) and sequential scans are switched off, so the planner has no choice but to use
+HNSW. On a few hundred rows it would otherwise pick an exact scan and hide the behaviour
+this file exists to guard: the per-strategy filter is applied after the HNSW scan.
 """
 import os
 from pathlib import Path
@@ -19,79 +24,83 @@ psycopg = pytest.importorskip("psycopg")
 pytest.importorskip("psycopg_pool")
 pytest.importorskip("pgvector")
 
+TEST_SCHEMA = "_t_rl"
+SCHEMA_SQL = Path(__file__).resolve().parent.parent / "sql" / "init.sql"
+STRATEGIES = ["a", "b", "c"]
+PER_STRATEGY = 300
+
 os.environ["DATABASE_URL"] = URL  # before app.db builds its pool
 
 from app.db import close_pool, conn, open_pool  # noqa: E402
 from app.retrieval import dense_search_vec, lexical_search  # noqa: E402
 
-SCHEMA = Path(__file__).resolve().parent.parent / "sql" / "init.sql"
-STRATEGIES = ["_t_a", "_t_b", "_t_c"]
-PER_STRATEGY = 300
-
-
-def _cleanup(c):
-    c.execute("DELETE FROM chunks WHERE strategy LIKE '\\_t\\_%'")
-    c.execute("DELETE FROM documents WHERE id LIKE '\\_t\\_%'")
-
 
 @pytest.fixture(scope="module")
 def vectors():
-    # the extension must exist before the pool registers the vector type
     with psycopg.connect(URL, autocommit=True) as c:
-        c.execute(SCHEMA.read_text())
+        # the extension must exist (in public) before the pool registers the vector type
+        c.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        c.execute(f"DROP SCHEMA IF EXISTS {TEST_SCHEMA} CASCADE")
+        c.execute(f"CREATE SCHEMA {TEST_SCHEMA}")
+        c.execute(f"SET search_path = {TEST_SCHEMA}, public")
+        c.execute(SCHEMA_SQL.read_text())
+        c.execute(f"DROP INDEX {TEST_SCHEMA}.chunks_strategy_idx")
 
+    # libpq applies PGOPTIONS to every new connection of this process
+    os.environ["PGOPTIONS"] = f"-c search_path={TEST_SCHEMA},public -c enable_seqscan=off"
     open_pool()
+
     rng = np.random.default_rng(0)
     out = {}
-    with conn() as c:
-        _cleanup(c)
+    with conn() as c, c.cursor() as cur:
         for s in STRATEGIES:
             v = rng.normal(size=(PER_STRATEGY, 384)).astype("float32")
             v /= np.linalg.norm(v, axis=1, keepdims=True)
             out[s] = v
-            c.executemany(
-                "INSERT INTO documents (id) VALUES (%s) ON CONFLICT DO NOTHING",
+            cur.executemany(
+                "INSERT INTO documents (id) VALUES (%s)",
                 [(f"{s}-{i}",) for i in range(PER_STRATEGY)],
             )
-            c.executemany(
+            cur.executemany(
                 "INSERT INTO chunks (doc_id, strategy, idx, text, embedding) VALUES (%s, %s, 0, %s, %s)",
                 [(f"{s}-{i}", s, f"chunk {i}", v[i]) for i in range(PER_STRATEGY)],
             )
         for doc_id, text in [
-            ("_t_v1", "Vitamin D supplementation reduces fracture risk in elderly adults"),
-            ("_t_v2", "Calcium intake and bone density in postmenopausal women"),
-            ("_t_v3", "Statin therapy lowers cardiovascular mortality"),
+            ("v1", "Vitamin D supplementation reduces fracture risk in elderly adults"),
+            ("v2", "Calcium intake and bone density in postmenopausal women"),
+            ("v3", "Statin therapy lowers cardiovascular mortality"),
         ]:
-            c.execute("INSERT INTO documents (id) VALUES (%s) ON CONFLICT DO NOTHING", (doc_id,))
-            c.execute(
-                "INSERT INTO chunks (doc_id, strategy, idx, text) VALUES (%s, '_t_lex', 0, %s)",
+            cur.execute("INSERT INTO documents (id) VALUES (%s)", (doc_id,))
+            cur.execute(
+                "INSERT INTO chunks (doc_id, strategy, idx, text) VALUES (%s, 'lex', 0, %s)",
                 (doc_id, text),
             )
     yield out
-    with conn() as c:
-        _cleanup(c)
+
     close_pool()
+    with psycopg.connect(URL, autocommit=True) as c:
+        c.execute(f"DROP SCHEMA IF EXISTS {TEST_SCHEMA} CASCADE")
 
 
 def test_dense_returns_k_results_when_strategies_share_the_index(vectors):
     # Regression: without iterative scans the strategy filter is applied after the
     # HNSW scan and only a fraction of the requested rows come back.
-    hits = dense_search_vec(vectors["_t_a"][7], "_t_a", 100)
+    hits = dense_search_vec(vectors["a"][7], "a", 100)
     assert len(hits) == 100
-    assert all(h.doc_id.startswith("_t_a-") for h in hits)
-    assert "_t_a-7" in [h.doc_id for h in hits[:10]]
+    assert all(h.doc_id.startswith("a-") for h in hits)
+    assert "a-7" in [h.doc_id for h in hits[:10]]
 
 
 def test_dense_results_are_ordered_by_similarity(vectors):
-    hits = dense_search_vec(vectors["_t_b"][3], "_t_b", 50)
+    hits = dense_search_vec(vectors["b"][3], "b", 50)
     scores = [h.score for h in hits]
     assert scores == sorted(scores, reverse=True)
 
 
 def test_lexical_matches_natural_language_questions(vectors):
-    hits = lexical_search("does vitamin D reduce fracture risk in older people", "_t_lex", 5)
-    assert hits and hits[0].doc_id == "_t_v1"
+    hits = lexical_search("does vitamin D reduce fracture risk in older people", "lex", 5)
+    assert hits and hits[0].doc_id == "v1"
 
 
 def test_lexical_stopword_only_query_returns_nothing(vectors):
-    assert lexical_search("is it the", "_t_lex", 5) == []
+    assert lexical_search("is it the", "lex", 5) == []

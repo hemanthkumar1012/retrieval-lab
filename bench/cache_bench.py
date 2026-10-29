@@ -21,7 +21,7 @@ import numpy as np
 from datasets import load_dataset
 from tabulate import tabulate
 
-from app.embeddings import embed_docs
+from app.embeddings import embed_queries
 
 RESULTS = Path(__file__).parent / "results"
 
@@ -47,14 +47,16 @@ def main():
     args = ap.parse_args()
 
     qs = load_queries(args.limit)
-    originals = embed_docs(qs)  # (n, d), L2-normalised
+    # embed_queries, not embed_docs: the cache compares prefixed query embeddings, and the
+    # prefix shifts every similarity, so the sweep only transfers if it uses the same path
+    originals = embed_queries(qs)  # (n, d), L2-normalised
 
     variants, owner = [], []
     for i, q in enumerate(qs):
         for t in TEMPLATES:
             variants.append(t(q))
             owner.append(i)
-    var_emb = embed_docs(variants)
+    var_emb = embed_queries(variants)
     owner = np.array(owner)
 
     # paraphrase hit: best match in the cache is the query it was derived from
@@ -70,7 +72,7 @@ def main():
     distinct_best = q2q.max(axis=1)
 
     rows = []
-    for thr in [0.80, 0.85, 0.88, 0.90, 0.92, 0.94, 0.96, 0.98]:
+    for thr in [0.80, 0.85, 0.88, 0.90, 0.92, 0.94, 0.96, 0.98, 0.99, 0.995]:
         wrong_hit = (paraphrase_best_other >= thr) & (paraphrase_best_other > own_sim)
         rows.append({
             "threshold": thr,

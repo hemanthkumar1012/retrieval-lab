@@ -87,8 +87,13 @@ def parity(n: int = 200) -> str:
         "|---|---|",
         f"| embedder, document cosine to fp32 (mean / min) | {cos_d.mean():.4f} / {cos_d.min():.4f} |",
         f"| embedder, query cosine to fp32 (mean / min) | {cos_q.mean():.4f} / {cos_q.min():.4f} |",
-        f"| embedder, nearest passage per query agrees with fp32 | {top1:.1%} |",
+        f"| embedder, same nearest passage as fp32 (see note) | {top1:.1%} |",
         f"| reranker, score correlation with fp32 (Pearson) | {corr:.4f} |",
+        "",
+        "Note: the nearest-passage row pairs arbitrary queries with arbitrary passages, so for most",
+        "queries every passage is irrelevant and the winner is a near-tie that tiny numeric changes",
+        "can flip. It says little about retrieval quality. The SciFact benchmark (recall, nDCG) is",
+        "the real comparison.",
         "",
     ]
     report = "\n".join(lines)

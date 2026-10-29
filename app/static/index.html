@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>retrieval-lab</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  form { display: flex; gap: .5rem; flex-wrap: wrap; }
+  input[type=text] { flex: 1 1 320px; padding: .5rem; }
+  select, button { padding: .5rem; }
+  #meta { color: #555; font-size: 13px; margin: 1rem 0 .5rem; }
+  #answer { white-space: pre-wrap; border-left: 3px solid #ccc; padding-left: .75rem; min-height: 1.5rem; }
+  details { margin: .5rem 0; }
+  summary { cursor: pointer; }
+  .score { color: #888; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>retrieval-lab</h1>
+<form id="f">
+  <input type="text" id="q" placeholder="Ask something about the ingested corpus" required>
+  <select id="mode">
+    <option value="hybrid_rerank">hybrid + rerank</option>
+    <option value="hybrid">hybrid</option>
+    <option value="dense">dense</option>
+    <option value="bm25">lexical</option>
+  </select>
+  <button>Ask</button>
+</form>
+<div id="meta"></div>
+<div id="answer"></div>
+<div id="sources"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+$("f").addEventListener("submit", async e => {
+  e.preventDefault();
+  $("answer").textContent = "";
+  $("sources").innerHTML = "";
+  $("meta").textContent = "retrieving...";
+
+  const res = await fetch("/ask", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query: $("q").value, mode: $("mode").value }),
+  });
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      handle(buf.slice(0, i));
+      buf = buf.slice(i + 2);
+    }
+  }
+});
+
+function handle(block) {
+  const ev = /^event: (.*)$/m.exec(block)?.[1];
+  const raw = /^data: (.*)$/m.exec(block)?.[1];
+  if (!ev || raw === undefined) return;
+  const data = JSON.parse(raw);
+
+  if (ev === "meta") {
+    const t = data.timings_ms ? Object.entries(data.timings_ms).map(([k, v]) => `${k} ${v}ms`).join(" · ") : "";
+    $("meta").textContent = data.cache === "hit"
+      ? `cache hit (similarity ${data.similarity})`
+      : `cache miss · ${t}`;
+    data.sources.forEach((s, i) => {
+      const d = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = `[${i + 1}] doc ${s.doc_id} `;
+      const sc = document.createElement("span");
+      sc.className = "score";
+      sc.textContent = `score ${s.score}`;
+      sum.appendChild(sc);
+      const p = document.createElement("p");
+      p.textContent = s.text;
+      d.append(sum, p);
+      $("sources").appendChild(d);
+    });
+  } else if (ev === "token") {
+    $("answer").textContent += data;
+  } else if (ev === "done") {
+    const extra = data.first_token_ms ? ` · first token ${data.first_token_ms}ms` : "";
+    $("meta").textContent += ` · total ${data.total_ms}ms${extra}`;
+  }
+}
+</script>
+</body>
+</html>

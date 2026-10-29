@@ -1,0 +1,45 @@
+import json
+from typing import AsyncIterator
+
+import httpx
+
+from .config import settings
+from .retrieval import Hit
+
+SYSTEM = (
+    "You answer questions using only the numbered context passages. "
+    "Cite passages like [1] or [2]. If the context doesn't contain the answer, say so."
+)
+
+
+def build_messages(question: str, hits: list[Hit]) -> list[dict]:
+    ctx = "\n\n".join(f"[{i}] {h.text}" for i, h in enumerate(hits, start=1))
+    return [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": f"Context:\n{ctx}\n\nQuestion: {question}"},
+    ]
+
+
+async def stream_completion(messages: list[dict]) -> AsyncIterator[str]:
+    """Yields text deltas from any OpenAI-compatible /chat/completions endpoint."""
+    if not settings.llm_api_key:
+        yield "(LLM_API_KEY is not set, returning retrieval results only)"
+        return
+
+    headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
+    body = {"model": settings.llm_model, "messages": messages, "stream": True, "temperature": 0.1}
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        async with client.stream(
+            "POST", f"{settings.llm_base_url}/chat/completions", headers=headers, json=body
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[6:]
+                if data == "[DONE]":
+                    break
+                delta = json.loads(data)["choices"][0]["delta"].get("content")
+                if delta:
+                    yield delta

@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: pgvector/pgvector:0.8.0-pg16  # 0.8+ is required for iterative HNSW scans
     environment:
       POSTGRES_USER: rag
       POSTGRES_PASSWORD: rag
@@ -22,7 +22,9 @@ services:
 
   api:
     build: .
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       DATABASE_URL: postgresql://rag:rag@db:5432/rag
       REDIS_URL: redis://redis:6379/0

@@ -1,0 +1,7 @@
+# the light subset needed to run the SQL integration tests (no torch, no models)
+pytest==8.3.3
+psycopg[binary,pool]==3.2.3
+pgvector==0.3.6
+numpy==1.26.4
+pydantic==2.9.2
+pydantic-settings==2.6.1

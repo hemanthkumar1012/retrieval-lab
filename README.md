@@ -56,7 +56,8 @@ make cache-bench    # threshold sweep for the semantic cache -> bench/results/ca
 
 Reported per configuration: recall@1/5/10, MRR@10, nDCG@10 and p50/p95 latency
 (query embedding included). Chunk hits are collapsed to documents before scoring,
-because SciFact labels are per document.
+because SciFact labels are per document. The reranked modes rerank the top 100 fused
+candidates here (the API default is 50), so latency reflects that.
 
 ### Results
 
@@ -79,8 +80,15 @@ make lint
 make test
 ```
 
-Unit tests cover rank fusion, the evaluation metrics and the chunkers, and need no
-database. CI runs lint, tests and a Docker build.
+Unit tests cover rank fusion, the evaluation metrics, the chunkers and the rate limiter, and
+need no database. `make test-sql` runs the retrieval SQL against a real pgvector (CI does the
+same in a service container). CI runs lint, unit tests, the SQL tests and a Docker build.
+
+## Deploy
+
+Supabase for Postgres + pgvector, Upstash for Redis, any Docker host for the API. Step by
+step, with the environment variables, in [docs/deploy.md](docs/deploy.md). `ADMIN_TOKEN`
+should be set on anything public.
 
 ## Layout
 
@@ -89,7 +97,7 @@ app/        service: chunking, embeddings, fusion, retrieval, cache, llm, api, d
 bench/      metrics, retrieval benchmark, cache threshold benchmark
 tests/      unit tests
 sql/        schema
-docs/       architecture notes
+docs/       architecture notes, deploy guide
 ```
 
 ## License

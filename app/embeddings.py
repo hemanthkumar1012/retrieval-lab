@@ -1,21 +1,28 @@
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import numpy as np
-from sentence_transformers import CrossEncoder, SentenceTransformer
 
 from .config import settings
+
+if TYPE_CHECKING:  # heavy imports stay lazy so SQL-only tests don't need torch
+    from sentence_transformers import CrossEncoder, SentenceTransformer
 
 # bge models were trained with this prefix on the query side only
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 
 @lru_cache(maxsize=1)
-def _embedder() -> SentenceTransformer:
+def _embedder() -> "SentenceTransformer":
+    from sentence_transformers import SentenceTransformer
+
     return SentenceTransformer(settings.embed_model)
 
 
 @lru_cache(maxsize=1)
-def _reranker() -> CrossEncoder:
+def _reranker() -> "CrossEncoder":
+    from sentence_transformers import CrossEncoder
+
     return CrossEncoder(settings.rerank_model)
 
 

@@ -49,7 +49,10 @@ def _flush(batch: list[dict], strategy: str) -> int:
             cur.executemany(
                 """INSERT INTO chunks (doc_id, strategy, idx, text, embedding)
                    VALUES (%s, %s, %s, %s, %s)""",
-                [(doc_id, strategy, idx, text, vec) for (doc_id, idx, text), vec in zip(rows, vecs)],
+                [
+                    (doc_id, strategy, idx, text, vec)
+                    for (doc_id, idx, text), vec in zip(rows, vecs, strict=True)
+                ],
             )
         c.commit()
     return len(rows)

@@ -31,7 +31,7 @@ async def stream_completion(messages: list[dict]) -> AsyncIterator[str]:
 
     async with httpx.AsyncClient(timeout=60) as client:
         async with client.stream(
-            "POST", f"{settings.llm_base_url}/chat/completions", headers=headers, json=body
+            "POST", f"{settings.llm_base_url.rstrip('/')}/chat/completions", headers=headers, json=body
         ) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
@@ -40,6 +40,8 @@ async def stream_completion(messages: list[dict]) -> AsyncIterator[str]:
                 data = line[6:]
                 if data == "[DONE]":
                     break
-                delta = json.loads(data)["choices"][0]["delta"].get("content")
+                # some compatible servers send keep-alive or usage chunks with no choices
+                choices = json.loads(data).get("choices") or []
+                delta = (choices[0].get("delta") or {}).get("content") if choices else None
                 if delta:
                     yield delta

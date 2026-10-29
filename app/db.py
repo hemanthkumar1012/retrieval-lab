@@ -15,6 +15,10 @@ pool = ConnectionPool(
     min_size=1,
     max_size=8,
     configure=_configure,
+    # psycopg switches to server-side prepared statements after a few repeats of a
+    # query. Supabase's transaction pooler (pgbouncer) hands each transaction to an
+    # arbitrary backend, so those statements vanish and queries start failing.
+    kwargs={"prepare_threshold": None},
     open=False,
 )
 

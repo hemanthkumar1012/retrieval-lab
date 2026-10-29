@@ -31,6 +31,13 @@ constant (k=60).
 **OR-ed lexical query.** `plainto_tsquery` ANDs every term, so a long natural-language
 question matches almost nothing. Terms are OR-ed and ranked instead.
 
+**Iterative HNSW scans.** All strategies share one HNSW index and pgvector applies the
+`strategy` filter after the index scan. Without iterative scans a query for 40 chunks
+returns only the ones among the ~40 nearest *across all strategies* that match, a fraction of
+what was asked, and dense recall in the benchmark would be understated for every
+configuration. `dense_search_vec` turns on `hnsw.iterative_scan` per transaction (needs
+pgvector 0.8+), and `tests/test_sql_integration.py` guards it in CI.
+
 **Strategy column on `chunks`.** Several chunkings of the same corpus coexist, which
 is what lets the benchmark compare them on identical data without re-creating tables.
 
@@ -54,3 +61,14 @@ breakdown so regressions can be pinned to a stage.
 - Cache entries expire after `CACHE_TTL_SECONDS`; the index sorted set is trimmed to the newest
   2000 keys on every write.
 - Re-ingesting a document replaces its chunks for that strategy only.
+
+## Known limitations
+
+- Chunk sizes are counted in `cl100k_base` tokens, but `bge-small` and the cross-encoder
+  truncate at 512 *wordpiece* tokens, which is usually a larger count for scientific text.
+  The 512-token strategies can therefore be cut short at embedding time. Most SciFact
+  abstracts are shorter than that, so the effect is small there, but it is not zero.
+- The benchmark reranks the top 100 fused candidates, the API defaults to 50. Latency
+  numbers from `make bench` describe the former.
+- The rate limiter is a fixed window per client IP and fails open if Redis is down.
+- `ts_rank_cd` is not BM25, so the `bm25` mode label is shorthand for "Postgres full-text".

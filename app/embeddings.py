@@ -36,6 +36,17 @@ def embed_query(q: str) -> np.ndarray:
     return _embedder().encode(QUERY_PREFIX + q, normalize_embeddings=True)
 
 
+def embed_queries(qs: list[str], batch_size: int = 64) -> np.ndarray:
+    """Same vectors embed_query produces, in bulk. Anything that must match what the live
+    service compares (the semantic cache) has to go through the query prefix."""
+    return _embedder().encode(
+        [QUERY_PREFIX + q for q in qs],
+        batch_size=batch_size,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )
+
+
 def rerank_scores(query: str, passages: list[str]) -> list[float]:
     if not passages:
         return []

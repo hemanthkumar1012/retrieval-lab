@@ -1,45 +1,13 @@
 name: debug
-on: workflow_dispatch
+on:
+  push:
+    branches: [ci-bench]
 
 jobs:
-  sql:
+  cache-bench:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.0-pg16
-        env: {POSTGRES_USER: rag, POSTGRES_PASSWORD: rag, POSTGRES_DB: rag}
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U rag" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      TEST_DATABASE_URL: postgresql://rag:rag@localhost:5432/rag
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
-      - run: pip install -r requirements-ci.txt
-      - run: bash .github/dbg.sh sql-pytest 60 pytest -x -q --tb=short tests/test_sql_integration.py
-
-  e2e:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - run: cp .env.example .env
-      - run: bash .github/dbg.sh compose-build 40 docker compose up -d --build
-      - name: wait for the API
-        run: |
-          for i in $(seq 1 60); do
-            curl -sf localhost:8000/health >/dev/null && exit 0
-            sleep 5
-          done
-          bash .github/dbg.sh api-logs-startup 60 docker compose logs api
-          exit 1
-      - run: bash .github/dbg.sh smoke 40 bash scripts/smoke.sh
-      - name: quick benchmark
-        run: bash .github/dbg.sh bench-quick 45 docker compose exec -T api python -m bench.run_bench --limit 20 --strategies recursive_256
-        timeout-minutes: 40
-      - run: bash .github/dbg.sh bench-table 20 docker compose exec -T api cat bench/results/scifact.md
-      - run: bash .github/dbg.sh cache-bench 30 docker compose exec -T api python -m bench.cache_bench --limit 50
-      - if: failure()
-        run: bash .github/dbg.sh api-logs 60 docker compose logs api
+      - run: docker build -t rl .
+      - run: bash .github/dbg.sh cache-bench-fixed 30 docker run --rm rl python -m bench.cache_bench --limit 50

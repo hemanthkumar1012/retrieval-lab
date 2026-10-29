@@ -5,7 +5,7 @@ host yet, so treat the first deploy as the test and check each step below.
 
 ```
 browser ──> API container (FastAPI + 2 models) ──> Supabase Postgres (pgvector)
-                         └────────────────────────> Upstash Redis (semantic cache)
+                         └──> Redis (built into the container, or hosted)
 ```
 
 **Where Vercel fits.** Not for the API. It loads two PyTorch models at startup and keeps a
@@ -36,9 +36,14 @@ Ingest **one** strategy for the demo. The benchmark's six strategies store the c
 times, and the free database is limited to 500 MB (at the time of writing). Check the size
 with `SELECT pg_size_pretty(pg_database_size(current_database()));`.
 
-## 3. Redis (Upstash)
+## 3. Redis
 
-Create a free database and use its `rediss://` URL as `REDIS_URL`.
+Nothing to set up on a single-container host. If `REDIS_URL` is **not set**, the image
+starts its own small Redis (64 MB, no persistence) next to the API. The cache and the rate
+limit counters are rebuildable, so losing them on a restart is fine.
+
+To use a hosted Redis instead (Upstash, Redis Cloud), set `REDIS_URL` to its `rediss://` URL.
+Do that if you run more than one API instance, so they share the cache and the limits.
 
 ## 4. API host
 
@@ -50,7 +55,7 @@ with `docker stats` and avoid 512 MB tiers.
 | variable | value |
 |---|---|
 | `DATABASE_URL` | Supabase pooler string |
-| `REDIS_URL` | Upstash `rediss://` URL |
+| `REDIS_URL` | leave unset to use the built-in Redis, or a hosted `rediss://` URL |
 | `ADMIN_TOKEN` | long random string, required on `/ingest` and `DELETE /cache` |
 | `RATE_LIMIT_PER_MINUTE` | `30` (per IP, on `/search` and `/ask`) |
 | `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | your provider; leave the key empty for retrieval-only |

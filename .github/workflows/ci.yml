@@ -67,5 +67,19 @@ jobs:
           docker compose logs api | tail -50
           exit 1
       - run: bash scripts/smoke.sh
+      # same image with no REDIS_URL: it must start its own Redis and actually use it
+      - name: single-container mode (embedded Redis)
+        run: |
+          docker run -d --name solo --network retrieval-lab_default \
+            -e DATABASE_URL=postgresql://rag:rag@db:5432/rag -p 8001:8000 retrieval-lab-api
+          for i in $(seq 1 60); do
+            curl -sf localhost:8001/health >/dev/null && break
+            sleep 5
+          done
+          bash scripts/smoke.sh http://localhost:8001
+          docker exec solo redis-cli ping | grep -q PONG
+          docker exec solo redis-cli keys 'rl:*' | grep -q 'rl:'
       - if: failure()
-        run: docker compose logs api | tail -80
+        run: |
+          docker compose logs api | tail -60
+          docker logs solo 2>&1 | tail -60

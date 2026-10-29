@@ -81,8 +81,11 @@ make test
 ```
 
 Unit tests cover rank fusion, the evaluation metrics, the chunkers and the rate limiter, and
-need no database. `make test-sql` runs the retrieval SQL against a real pgvector (CI does the
-same in a service container). CI runs lint, unit tests, the SQL tests and a Docker build.
+need no database. `make smoke` ingests three documents into a running API and checks every
+retrieval mode and the streaming endpoint (it adds three `smoke-*` documents to the
+`fixed_128` strategy). `make test-sql` runs the retrieval SQL against a real pgvector (CI does the
+same in a service container). CI runs lint, unit tests, the SQL tests, and the smoke test against
+the full docker compose stack.
 
 ## Deploy
 

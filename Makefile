@@ -1,4 +1,4 @@
-.PHONY: up down test test-sql lint bench bench-quick cache-bench run
+.PHONY: up down test test-sql smoke lint bench bench-quick cache-bench run
 
 up:
 	docker compose up -d db redis
@@ -14,6 +14,9 @@ test:
 
 test-sql: up
 	TEST_DATABASE_URL=postgresql://rag:rag@localhost:5432/rag pytest -q tests/test_sql_integration.py
+
+smoke:
+	bash scripts/smoke.sh
 
 lint:
 	ruff check .

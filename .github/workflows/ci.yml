@@ -49,9 +49,23 @@ jobs:
       - run: pip install -r requirements-ci.txt
       - run: pytest -q tests/test_sql_integration.py
 
-  docker:
+  # Builds the image, starts the real stack and runs the smoke test against it: this is what
+  # catches broken dependency pins or an API that no longer starts.
+  e2e:
     runs-on: ubuntu-latest
     needs: test
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t retrieval-lab .
+      - run: cp .env.example .env
+      - run: docker compose up -d --build
+      - name: wait for the API
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf localhost:8000/health >/dev/null && exit 0
+            sleep 5
+          done
+          docker compose logs api | tail -50
+          exit 1
+      - run: bash scripts/smoke.sh
+      - if: failure()
+        run: docker compose logs api | tail -80

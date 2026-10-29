@@ -43,17 +43,17 @@ def vectors():
     open_pool()
     rng = np.random.default_rng(0)
     out = {}
-    with conn() as c:
+    with conn() as c, c.cursor() as cur:
         _cleanup(c)
         for s in STRATEGIES:
             v = rng.normal(size=(PER_STRATEGY, 384)).astype("float32")
             v /= np.linalg.norm(v, axis=1, keepdims=True)
             out[s] = v
-            c.executemany(
+            cur.executemany(
                 "INSERT INTO documents (id) VALUES (%s) ON CONFLICT DO NOTHING",
                 [(f"{s}-{i}",) for i in range(PER_STRATEGY)],
             )
-            c.executemany(
+            cur.executemany(
                 "INSERT INTO chunks (doc_id, strategy, idx, text, embedding) VALUES (%s, %s, 0, %s, %s)",
                 [(f"{s}-{i}", s, f"chunk {i}", v[i]) for i in range(PER_STRATEGY)],
             )

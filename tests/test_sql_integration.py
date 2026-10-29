@@ -20,6 +20,9 @@ pytest.importorskip("psycopg_pool")
 pytest.importorskip("pgvector")
 
 os.environ["DATABASE_URL"] = URL  # before app.db builds its pool
+# On a few hundred rows Postgres prefers an exact sequential scan, which hides the HNSW
+# behaviour under test. libpq applies PGOPTIONS to every new connection of this process only.
+os.environ["PGOPTIONS"] = "-c enable_seqscan=off"
 
 from app.db import close_pool, conn, open_pool  # noqa: E402
 from app.retrieval import dense_search_vec, lexical_search  # noqa: E402

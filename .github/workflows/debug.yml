@@ -1,7 +1,5 @@
 name: debug
-on:
-  push:
-    branches: [ci-debug]
+on: workflow_dispatch
 
 jobs:
   sql:

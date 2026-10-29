@@ -1,10 +1,28 @@
 name: guard-check
 on:
   push:
-    branches: [ci-debug]
+    branches: [ci-guard]
 
 jobs:
-  sql-without-fix:
+  with-fix:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env: {POSTGRES_USER: rag, POSTGRES_PASSWORD: rag, POSTGRES_DB: rag}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://rag:rag@localhost:5432/rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements-ci.txt
+      - run: bash .github/dbg.sh guard-with-fix 30 pytest -q --tb=short tests/test_sql_integration.py
+
+  without-fix:
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -23,11 +41,11 @@ jobs:
       - name: remove the iterative-scan fix
         run: |
           python - <<'PY'
-          import pathlib, re
+          import pathlib
           p = pathlib.Path("app/retrieval.py"); s = p.read_text()
           a = s.index("        c.execute(\n            \"SELECT set_config('hnsw.iterative_scan'")
           b = s.index("        rows = c.execute(", a)
           p.write_text(s[:a] + s[b:])
           PY
-          grep -c set_config app/retrieval.py || true
-      - run: bash .github/dbg.sh guard-without-fix 30 pytest -q --tb=line tests/test_sql_integration.py
+          echo "set_config occurrences left: $(grep -c set_config app/retrieval.py || true)"
+      - run: bash .github/dbg.sh guard-without-fix 30 pytest -q --tb=short tests/test_sql_integration.py

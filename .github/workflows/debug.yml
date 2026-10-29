@@ -1,0 +1,47 @@
+name: debug
+on:
+  push:
+    branches: [ci-debug]
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.0-pg16
+        env: {POSTGRES_USER: rag, POSTGRES_PASSWORD: rag, POSTGRES_DB: rag}
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U rag" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://rag:rag@localhost:5432/rag
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - run: pip install -r requirements-ci.txt
+      - run: |
+          set +e
+          pytest -x -q --tb=short tests/test_sql_integration.py > out.txt 2>&1
+          code=$?
+          cat out.txt
+          if [ $code -ne 0 ]; then
+            msg=$(tail -n 60 out.txt | cut -c1-300 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=sql-pytest::$msg"
+          fi
+          exit $code
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set +e
+          docker build --progress=plain -t retrieval-lab . > out.txt 2>&1
+          code=$?
+          tail -n 40 out.txt
+          if [ $code -ne 0 ]; then
+            msg=$(tail -n 50 out.txt | cut -c1-300 | sed -e 's/%/%25/g' -e 's/\r//g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=docker-build::$msg"
+          fi
+          exit $code

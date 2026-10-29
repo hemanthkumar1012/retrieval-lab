@@ -1,7 +1,9 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
     database_url: str = "postgresql://rag:rag@localhost:5432/rag"
     redis_url: str = "redis://localhost:6379/0"
 
@@ -19,8 +21,13 @@ class Settings(BaseSettings):
 
     default_strategy: str = "recursive_256"
 
-    class Config:
-        env_file = ".env"
+    # HNSW candidate list size per scan batch (pgvector hnsw.ef_search)
+    hnsw_ef_search: int = 100
+
+    # public-deployment guards. Empty ADMIN_TOKEN leaves /ingest and DELETE /cache open (local dev).
+    admin_token: str = ""
+    rate_limit_per_minute: int = 30  # per client IP on /search and /ask; 0 disables
+    cors_origins: str = ""  # comma-separated; only needed if a separate frontend calls the API
 
 
 settings = Settings()

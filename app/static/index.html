@@ -47,6 +47,11 @@ $("f").addEventListener("submit", async e => {
     body: JSON.stringify({ query: $("q").value, mode: $("mode").value }),
   });
 
+  if (!res.ok) {
+    $("meta").textContent = `error ${res.status}: ${await res.text()}`;
+    return;
+  }
+
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -88,6 +93,8 @@ function handle(block) {
     });
   } else if (ev === "token") {
     $("answer").textContent += data;
+  } else if (ev === "error") {
+    $("meta").textContent += ` · ${data.message}`;
   } else if (ev === "done") {
     const extra = data.first_token_ms ? ` · first token ${data.first_token_ms}ms` : "";
     $("meta").textContent += ` · total ${data.total_ms}ms${extra}`;

@@ -38,7 +38,7 @@ def lookup(qvec: np.ndarray, strategy: str, mode: str) -> Optional[dict]:
 
     scope = f"{strategy}|{mode}".encode()
     best, best_key = -1.0, None
-    for k, (raw, sc) in zip(keys, rows):
+    for k, (raw, sc) in zip(keys, rows, strict=True):
         if raw is None or sc != scope:
             continue  # expired or from a different retrieval config
         v = np.frombuffer(raw, dtype=np.float32)
@@ -80,3 +80,8 @@ def clear() -> int:
         _r.delete(*keys)
     _r.delete(INDEX_KEY)
     return len(keys)
+
+
+def client() -> redis.Redis:
+    """Shared connection, also used by the rate limiter."""
+    return _r

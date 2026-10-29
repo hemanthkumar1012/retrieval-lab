@@ -1,14 +1,18 @@
+import hmac
 import json
+import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import cache
+from . import cache, ratelimit
 from .chunking import STRATEGIES
 from .config import settings
 from .db import close_pool, conn, open_pool
@@ -17,9 +21,13 @@ from .ingest import ingest
 from .llm import build_messages, stream_completion
 from .retrieval import MODES, retrieve
 
+log = logging.getLogger("uvicorn.error")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not settings.admin_token:
+        log.warning("ADMIN_TOKEN is not set: /ingest and DELETE /cache are open to anyone")
     open_pool()
     # load models now so the first request doesn't pay for it
     await run_in_threadpool(embed_query, "warmup")
@@ -28,6 +36,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="retrieval-lab", lifespan=lifespan)
+
+if settings.cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+def require_admin(x_admin_token: str | None = Header(default=None)):
+    """Guards the endpoints that write. Open when ADMIN_TOKEN is unset (local dev)."""
+    if not settings.admin_token:
+        return
+    if not x_admin_token or not hmac.compare_digest(x_admin_token, settings.admin_token):
+        raise HTTPException(401, "missing or wrong X-Admin-Token header")
+
+
+def rate_limit(request: Request):
+    """Per-IP limit on the endpoints that cost CPU or LLM tokens."""
+    limit = settings.rate_limit_per_minute
+    if limit <= 0:
+        return
+    ip = request.client.host if request.client else "unknown"
+    if not ratelimit.allow(cache.client(), f"rl:{ip}", limit):
+        raise HTTPException(429, "rate limit exceeded, try again in a minute")
 
 
 class Doc(BaseModel):
@@ -81,7 +115,7 @@ def health():
     return {"ok": True, "chunks": n}
 
 
-@app.post("/ingest")
+@app.post("/ingest", dependencies=[Depends(require_admin)])
 def ingest_docs(req: IngestRequest):
     if req.strategy not in STRATEGIES:
         raise HTTPException(400, f"unknown strategy {req.strategy!r}")
@@ -89,14 +123,14 @@ def ingest_docs(req: IngestRequest):
     return {"docs": len(req.docs), "chunks": n, "strategy": req.strategy}
 
 
-@app.post("/search")
+@app.post("/search", dependencies=[Depends(rate_limit)])
 def search(req: QueryRequest):
     _check(req)
     hits, timings = retrieve(req.query, req.strategy, req.mode, req.k)
     return {"hits": [_hit_json(h) for h in hits], "timings_ms": {k: round(v, 1) for k, v in timings.items()}}
 
 
-@app.post("/ask")
+@app.post("/ask", dependencies=[Depends(rate_limit)])
 async def ask(req: QueryRequest):
     """Server-sent events: `meta` first (sources, timings, cache info), then
     `token` events as the model writes, then `done`."""
@@ -122,11 +156,17 @@ async def ask(req: QueryRequest):
 
         parts = []
         first = None
-        async for delta in stream_completion(build_messages(req.query, hits)):
-            if first is None:
-                first = (time.perf_counter() - t0) * 1000
-            parts.append(delta)
-            yield _sse("token", delta)
+        try:
+            async for delta in stream_completion(build_messages(req.query, hits)):
+                if first is None:
+                    first = (time.perf_counter() - t0) * 1000
+                parts.append(delta)
+                yield _sse("token", delta)
+        except httpx.HTTPError as e:
+            # sources were already sent; tell the client instead of dropping the stream
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            yield _sse("error", {"message": f"LLM request failed ({status or type(e).__name__})"})
+            return
 
         answer = "".join(parts)
         if req.use_cache and answer and settings.llm_api_key:
@@ -140,6 +180,6 @@ async def ask(req: QueryRequest):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-@app.delete("/cache")
+@app.delete("/cache", dependencies=[Depends(require_admin)])
 def clear_cache():
     return {"cleared": cache.clear()}

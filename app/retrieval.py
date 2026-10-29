@@ -1,13 +1,33 @@
 import time
 
+from .config import settings
 from .db import conn
 from .embeddings import embed_query, rerank_scores
 from .fusion import Hit, rrf
 
 
 def dense_search(query: str, strategy: str, k: int) -> list[Hit]:
-    qv = embed_query(query)
+    return dense_search_vec(embed_query(query), strategy, k)
+
+
+def dense_search_vec(qv, strategy: str, k: int) -> list[Hit]:
+    """Nearest chunks for one chunking strategy.
+
+    All strategies share one HNSW index. pgvector applies the `strategy` filter
+    *after* the index scan, so by default a query only sees the ~ef_search nearest
+    chunks across every strategy and the filter then discards most of them: with six
+    strategies a request for 40 chunks returns about 7. Iterative scans (pgvector
+    0.8+) keep walking the index until enough rows survive the filter.
+
+    set_config(..., true) is transaction-local, which also works through a
+    transaction pooler, unlike a session-level SET.
+    """
     with conn() as c:
+        c.execute(
+            "SELECT set_config('hnsw.iterative_scan', 'strict_order', true),"
+            " set_config('hnsw.ef_search', %s, true)",
+            (str(settings.hnsw_ef_search),),
+        )
         rows = c.execute(
             """SELECT id, doc_id, text, 1 - (embedding <=> %s) AS sim
                FROM chunks WHERE strategy = %s
@@ -36,7 +56,7 @@ def lexical_search(query: str, strategy: str, k: int) -> list[Hit]:
 
 def rerank(query: str, hits: list[Hit], top_n: int) -> list[Hit]:
     scores = rerank_scores(query, [h.text for h in hits])
-    for h, s in zip(hits, scores):
+    for h, s in zip(hits, scores, strict=True):
         h.score = float(s)
     return sorted(hits, key=lambda h: h.score, reverse=True)[:top_n]
 

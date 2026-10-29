@@ -21,3 +21,9 @@ CREATE TABLE IF NOT EXISTS chunks (
 CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN (tsv);
 CREATE INDEX IF NOT EXISTS chunks_strategy_idx ON chunks (strategy);
 CREATE INDEX IF NOT EXISTS chunks_emb_idx ON chunks USING hnsw (embedding vector_cosine_ops);
+
+-- Supabase serves every table in the public schema over its REST API with the anon
+-- key. With RLS enabled and no policies, those roles can read and write nothing. The
+-- backend connects as the database owner, which is unaffected, and so is plain Postgres.
+ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chunks    ENABLE ROW LEVEL SECURITY;

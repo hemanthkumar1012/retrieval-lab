@@ -29,7 +29,15 @@ jobs:
             numpy==1.26.4 tokenizers==0.20.3 datasets==3.1.0 pyarrow==17.0.0 \
             pydantic==2.9.2 pydantic-settings==2.6.1
       - name: export, quantise, compare with fp32
-        run: python scripts/export_models.py
+        run: |
+          set +e
+          python scripts/export_models.py 2>&1 | tee export.log
+          code=${PIPESTATUS[0]}
+          if [ $code -ne 0 ]; then
+            msg=$(tail -n 40 export.log | cut -c1-300 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=export failed::$msg"
+          fi
+          exit $code
       - name: show what was produced
         run: ls -l models/*/ && cat models/PARITY.md >> "$GITHUB_STEP_SUMMARY"
       - name: commit models

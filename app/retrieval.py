@@ -70,6 +70,7 @@ def retrieve(
     mode: str = "hybrid_rerank",
     k: int = 5,
     candidates: int = 50,
+    rerank_depth: int = 20,
 ) -> tuple[list[Hit], dict]:
     """Returns (hits, timings_ms). Timings are per stage so the benchmark can
     show where the latency goes."""
@@ -101,7 +102,7 @@ def retrieve(
         if mode == "hybrid":
             hits = fused[:k]
         else:
-            hits = rerank(query, fused[:candidates], k)
+            hits = rerank(query, fused[:rerank_depth], k)
             lap("rerank", s)
 
     t["total"] = (time.perf_counter() - t0) * 1000

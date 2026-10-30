@@ -12,6 +12,10 @@ SYSTEM = (
 )
 
 
+class LLMError(Exception):
+    """The chat endpoint answered with an error status; the message carries what it said."""
+
+
 def build_messages(question: str, hits: list[Hit]) -> list[dict]:
     ctx = "\n\n".join(f"[{i}] {h.text}" for i, h in enumerate(hits, start=1))
     return [
@@ -33,7 +37,9 @@ async def stream_completion(messages: list[dict]) -> AsyncIterator[str]:
         async with client.stream(
             "POST", f"{settings.llm_base_url.rstrip('/')}/chat/completions", headers=headers, json=body
         ) as resp:
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                detail = (await resp.aread()).decode(errors="replace")[:300]
+                raise LLMError(f"LLM request failed ({resp.status_code}): {detail}")
             async for line in resp.aiter_lines():
                 if not line.startswith("data: "):
                     continue

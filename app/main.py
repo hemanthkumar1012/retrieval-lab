@@ -18,7 +18,7 @@ from .config import settings
 from .db import close_pool, conn, open_pool
 from .embeddings import embed_query
 from .ingest import ingest
-from .llm import build_messages, stream_completion
+from .llm import LLMError, build_messages, stream_completion
 from .retrieval import MODES, retrieve
 
 log = logging.getLogger("uvicorn.error")
@@ -162,6 +162,9 @@ async def ask(req: QueryRequest):
                     first = (time.perf_counter() - t0) * 1000
                 parts.append(delta)
                 yield _sse("token", delta)
+        except LLMError as e:
+            yield _sse("error", {"message": str(e)})
+            return
         except httpx.HTTPError as e:
             # sources were already sent; tell the client instead of dropping the stream
             status = getattr(getattr(e, "response", None), "status_code", None)

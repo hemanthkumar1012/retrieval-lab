@@ -3,6 +3,21 @@ name = "retrieval-lab"
 version = "0.1.0"
 description = "RAG service with hybrid search, reranking, semantic caching and a reproducible retrieval benchmark"
 requires-python = ">=3.12"
+# Vercel installs from here when a pyproject.toml exists and ignores requirements.txt.
+# requirements.txt (Docker) must list the same packages; tests/test_requirements_sync.py checks.
+dependencies = [
+    "fastapi==0.115.4",
+    "psycopg[binary,pool]==3.2.3",
+    "pgvector==0.3.6",
+    "redis==5.2.0",
+    "numpy==1.26.4",
+    "onnxruntime==1.20.1",
+    "tokenizers==0.20.3",
+    "httpx==0.27.2",
+    "pydantic==2.9.2",
+    "pydantic-settings==2.6.1",
+    "tiktoken==0.8.0",
+]
 
 [tool.vercel]
 entrypoint = "app.main:app"

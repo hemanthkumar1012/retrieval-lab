@@ -19,6 +19,7 @@ from datasets import load_dataset
 from tabulate import tabulate
 
 from app.chunking import STRATEGIES
+from app.config import settings
 from app.db import close_pool, conn, open_pool
 from app.ingest import ingest
 from app.retrieval import MODES, retrieve
@@ -61,7 +62,10 @@ def scifact_docs_present(strategy: str, ids: list[str]) -> tuple[int, int]:
     return have, total
 
 
-def run_config(strategy: str, mode: str, queries, rel, ks=(1, 5, 10)):
+FUSED_MODES = ("hybrid", "hybrid_rerank")
+
+
+def run_config(strategy: str, mode: str, queries, rel, ks=(1, 5, 10), lexical_weight=None):
     lat, stage = [], defaultdict(list)
     r = {k: [] for k in ks}
     mrr, ndcg = [], []
@@ -81,6 +85,7 @@ def run_config(strategy: str, mode: str, queries, rel, ks=(1, 5, 10)):
     row = {
         "strategy": strategy,
         "mode": mode,
+        "lexical_weight": lexical_weight,
         **{f"recall@{k}": statistics.mean(r[k]) for k in ks},
         "mrr@10": statistics.mean(mrr),
         "ndcg@10": statistics.mean(ndcg),
@@ -95,6 +100,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--strategies", nargs="+", default=list(STRATEGIES))
     ap.add_argument("--modes", nargs="+", default=list(MODES))
+    ap.add_argument("--lexical-weights", nargs="+", type=float, default=[settings.lexical_weight],
+                    help="fusion weights for the full-text list; the fused modes run once per weight")
     ap.add_argument("--limit", type=int, default=None, help="only run the first N test queries")
     args = ap.parse_args()
 
@@ -125,9 +132,14 @@ def main():
         rows = []
         for s in args.strategies:
             for m in args.modes:
-                row = run_config(s, m, queries, rel)
-                rows.append(row)
-                print(f"  {s:14s} {m:14s} recall@10={row['recall@10']:.3f} p50={row['p50_ms']:.0f}ms")
+                for w in args.lexical_weights if m in FUSED_MODES else [None]:
+                    if w is not None:
+                        settings.lexical_weight = w
+                    row = run_config(s, m, queries, rel, lexical_weight=w)
+                    rows.append(row)
+                    tag = f"{m} w={w:g}" if w is not None else m
+                    print(f"  {s:14s} {tag:20s} recall@10={row['recall@10']:.3f} "
+                          f"ndcg@10={row['ndcg@10']:.3f} p50={row['p50_ms']:.0f}ms")
     finally:
         close_pool()
 
@@ -136,12 +148,14 @@ def main():
 
     table = tabulate(
         [
-            [r["strategy"], r["mode"], f"{r['recall@1']:.3f}", f"{r['recall@5']:.3f}",
+            [r["strategy"], r["mode"], "" if r["lexical_weight"] is None else f"{r['lexical_weight']:g}",
+             f"{r['recall@1']:.3f}", f"{r['recall@5']:.3f}",
              f"{r['recall@10']:.3f}", f"{r['mrr@10']:.3f}", f"{r['ndcg@10']:.3f}",
              f"{r['p50_ms']:.0f}", f"{r['p95_ms']:.0f}"]
             for r in rows
         ],
-        headers=["chunking", "retrieval", "R@1", "R@5", "R@10", "MRR@10", "nDCG@10", "p50 ms", "p95 ms"],
+        headers=["chunking", "retrieval", "lexical weight", "R@1", "R@5", "R@10", "MRR@10", "nDCG@10",
+                 "p50 ms", "p95 ms"],
         tablefmt="github",
     )
     (RESULTS / "scifact.md").write_text(table + "\n")

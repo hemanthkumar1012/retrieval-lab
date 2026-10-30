@@ -97,7 +97,7 @@ def retrieve(
         s = lap("dense", s)
         lex = lexical_search(query, strategy, candidates)
         s = lap("lexical", s)
-        fused = rrf({"dense": d, "lexical": lex})
+        fused = rrf({"dense": d, "lexical": lex}, weights={"lexical": settings.lexical_weight})
         s = lap("fusion", s)
         if mode == "hybrid":
             hits = fused[:k]

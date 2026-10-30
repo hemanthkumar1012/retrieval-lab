@@ -7,7 +7,10 @@ on:
     inputs:
       strategies:
         description: chunking strategies, space separated (all six take several hours)
-        default: "recursive_256 fixed_256 sentence_256"
+        default: "recursive_256"
+      lexical_weights:
+        description: fusion weights for the full-text list, space separated
+        default: "1 0.5 0.25 0.1"
       limit:
         description: only the first N test queries (empty means all 300)
         default: ""
@@ -23,10 +26,11 @@ jobs:
       - name: retrieval benchmark
         env:
           STRATEGIES: ${{ inputs.strategies }}
+          WEIGHTS: ${{ inputs.lexical_weights }}
           LIMIT: ${{ inputs.limit }}
         run: |
           # shellcheck disable=SC2086
-          docker compose exec -T api python -m bench.run_bench --strategies $STRATEGIES ${LIMIT:+--limit "$LIMIT"}
+          docker compose exec -T api python -m bench.run_bench --strategies $STRATEGIES --lexical-weights $WEIGHTS ${LIMIT:+--limit "$LIMIT"}
       - name: cache threshold benchmark
         run: docker compose exec -T api python -m bench.cache_bench
       - name: publish results

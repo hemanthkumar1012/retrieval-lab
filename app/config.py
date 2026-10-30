@@ -24,11 +24,17 @@ class Settings(BaseSettings):
     # platform's function limit so the page gets an error message instead of a dead stream
     llm_timeout_seconds: float = 40.0
 
-    # cosine similarity above which a cached answer is reused
-    cache_threshold: float = 0.92
+    # cosine similarity above which a cached answer is reused. 0.96 reuses about 96% of
+    # paraphrases and wrongly serves about 6% of distinct questions (bench/cache_bench.py);
+    # the old 0.92 default wrongly served 12%.
+    cache_threshold: float = 0.96
     cache_ttl_seconds: int = 3600
 
     default_strategy: str = "recursive_256"
+
+    # weight of the full-text list in rank fusion (the vector list is 1.0). Postgres full-text
+    # ranking is a weaker retriever than the vectors, so it should not vote equally.
+    lexical_weight: float = 1.0
 
     # HNSW candidate list size per scan batch (pgvector hnsw.ef_search)
     hnsw_ef_search: int = 100

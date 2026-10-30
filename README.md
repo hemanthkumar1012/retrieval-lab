@@ -13,6 +13,9 @@ and reranking order the same results. The *Benchmarks* page charts the measured 
 including a draggable view of the semantic cache trade-off. Questions have shareable links
 (`/?q=...&mode=hybrid`), and keys `/` and `1` to `4` focus the search box and pick a mode.
 
+![Home page with the pipeline guide](docs/screenshots/home.png)
+![An answered question with per-stage timings and cited sources](docs/screenshots/answer.png)
+
 ## Stack
 
 Python 3.12, FastAPI, Postgres + pgvector 0.8 (HNSW) on Supabase, ONNX Runtime with int8

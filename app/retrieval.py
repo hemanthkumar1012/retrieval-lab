@@ -1,4 +1,5 @@
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from .config import settings
 from .db import conn
@@ -64,6 +65,11 @@ def rerank(query: str, hits: list[Hit], top_n: int) -> list[Hit]:
 MODES = ("dense", "bm25", "hybrid", "hybrid_rerank")
 
 
+def _timed(fn, *args):
+    start = time.perf_counter()
+    return fn(*args), (time.perf_counter() - start) * 1000
+
+
 def retrieve(
     query: str,
     strategy: str,
@@ -71,9 +77,14 @@ def retrieve(
     k: int = 5,
     candidates: int = 50,
     rerank_depth: int = 20,
+    qvec=None,
 ) -> tuple[list[Hit], dict]:
     """Returns (hits, timings_ms). Timings are per stage so the benchmark can
-    show where the latency goes."""
+    show where the latency goes. In the hybrid modes the vector and full-text
+    searches run at the same time, so "total" is shorter than the stages added up.
+
+    Pass `qvec` when the caller has already embedded the query (the cache lookup
+    does), to skip embedding it a second time."""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}")
 
@@ -86,17 +97,19 @@ def retrieve(
         return now
 
     if mode == "dense":
-        hits = dense_search(query, strategy, k)
+        hits = dense_search_vec(embed_query(query) if qvec is None else qvec, strategy, k)
         lap("dense", t0)
     elif mode == "bm25":
         hits = lexical_search(query, strategy, k)
         lap("lexical", t0)
     else:
+        if qvec is None:
+            qvec = embed_query(query)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            lexical_job = pool.submit(_timed, lexical_search, query, strategy, candidates)
+            d, t["dense"] = _timed(dense_search_vec, qvec, strategy, candidates)
+            lex, t["lexical"] = lexical_job.result()
         s = time.perf_counter()
-        d = dense_search(query, strategy, candidates)
-        s = lap("dense", s)
-        lex = lexical_search(query, strategy, candidates)
-        s = lap("lexical", s)
         fused = rrf({"dense": d, "lexical": lex}, weights={"lexical": settings.lexical_weight})
         s = lap("fusion", s)
         if mode == "hybrid":

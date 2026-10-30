@@ -66,13 +66,16 @@ function cleanLatex(text) {
 /** Inline formatting: **bold** and [n] citations that point at the numbered source cards. */
 function inline(text) {
   const frag = document.createDocumentFragment();
-  for (const part of text.split(/(\*\*[^*]+\*\*|\[\d+\])/)) {
+  // [2] and also [2, 3], which the model writes when several passages back one claim
+  for (const part of text.split(/(\*\*[^*]+\*\*|\[\d+(?:\s*,\s*\d+)*\])/)) {
     if (!part) continue;
-    const cite = /^\[(\d+)\]$/.exec(part);
+    const cites = /^\[(\d+(?:\s*,\s*\d+)*)\]$/.exec(part);
     if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
       frag.append(el("strong", {}, part.slice(2, -2)));
-    } else if (cite) {
-      frag.append(el("button", { type: "button", class: "cite", "data-n": cite[1], "aria-label": `Passage ${cite[1]}` }, cite[1]));
+    } else if (cites) {
+      for (const n of cites[1].split(/\s*,\s*/)) {
+        frag.append(el("button", { type: "button", class: "cite", "data-n": n, "aria-label": `Passage ${n}` }, n));
+      }
     } else {
       frag.append(part);
     }

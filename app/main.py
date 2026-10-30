@@ -151,7 +151,9 @@ async def ask(req: QueryRequest):
                 yield _sse("done", {"total_ms": round((time.perf_counter() - t0) * 1000, 1)})
                 return
 
-        hits, timings = await run_in_threadpool(retrieve, req.query, req.strategy, req.mode, req.k)
+        hits, timings = await run_in_threadpool(
+            retrieve, req.query, req.strategy, req.mode, req.k, qvec=qvec
+        )
         sources = [_hit_json(h) for h in hits]
         yield _sse("meta", {"cache": "miss", "sources": sources,
                             "timings_ms": {k: round(v, 1) for k, v in timings.items()}})

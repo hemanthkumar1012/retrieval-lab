@@ -83,3 +83,7 @@ after a quiet period is slower while the function loads the models.
 `docker compose up --build` starts Postgres, Redis and the API on a laptop or any Docker host.
 The image honours `PORT`, so Render, Railway or Fly.io work too. Set `REDIS_URL` to share one
 cache across several instances.
+
+## Optional: web search
+
+Add `TAVILY_API_KEY` in Vercel (Settings, Environment Variables) for full web results. Get a free key at tavily.com. Without it, the *Also search the web* option uses Wikipedia. Redeploy after adding it.

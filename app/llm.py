@@ -11,15 +11,23 @@ SYSTEM = (
     "Cite passages like [1] or [2]. If the context doesn't contain the answer, say so."
 )
 
+SYSTEM_WEB = (
+    "You answer questions using only the numbered context passages. Some come from a research "
+    "knowledge base and some from a live web search (marked WEB). Write a short, well-organised "
+    "summary that combines both, cite every claim like [1] or [2], and say where the knowledge "
+    "base and the web disagree. If the passages don't contain the answer, say so."
+)
+
 
 class LLMError(Exception):
     """The chat endpoint answered with an error status; the message carries what it said."""
 
 
-def build_messages(question: str, hits: list[Hit]) -> list[dict]:
-    ctx = "\n\n".join(f"[{i}] {h.text}" for i, h in enumerate(hits, start=1))
+def build_messages(question: str, hits: list[Hit], web: list[dict] | None = None) -> list[dict]:
+    passages = [h.text for h in hits] + [f"WEB ({w['title']}): {w['text']}" for w in web or []]
+    ctx = "\n\n".join(f"[{i}] {p}" for i, p in enumerate(passages, start=1))
     return [
-        {"role": "system", "content": SYSTEM},
+        {"role": "system", "content": SYSTEM_WEB if web else SYSTEM},
         {"role": "user", "content": f"Context:\n{ctx}\n\nQuestion: {question}"},
     ]
 

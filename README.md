@@ -13,6 +13,10 @@ and reranking order the same results. The *Benchmarks* page charts the measured 
 including a draggable view of the semantic cache trade-off. Questions have shareable links
 (`/?q=...&mode=hybrid`), and keys `/` and `1` to `4` focus the search box and pick a mode.
 
+**Web search:** tick *Also search the web* to combine the knowledge base with live web results. The
+model writes one cited summary and says where the two disagree. It uses Tavily when `TAVILY_API_KEY`
+is set (free tier) and Wikipedia otherwise. Web answers skip the semantic cache.
+
 ![Home page with the pipeline guide](docs/screenshots/home.png)
 ![An answered question with per-stage timings and cited sources](docs/screenshots/answer.png)
 

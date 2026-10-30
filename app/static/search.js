@@ -154,9 +154,11 @@ function sourceCard(hit, i, terms) {
       "div",
       { class: "source-head" },
       el("span", { class: "source-n" }, String(i + 1)),
-      el("span", { class: "source-doc" }, `Document ${hit.doc_id}`),
-      ...chips,
-      el("span", { class: "source-score", title: "Score from the last stage that ran" }, hit.score.toFixed(3)),
+      hit.web
+        ? el("a", { class: "source-doc", href: hit.url, target: "_blank", rel: "noopener noreferrer" }, hit.title)
+        : el("span", { class: "source-doc" }, `Document ${hit.doc_id}`),
+      ...(hit.web ? [el("span", { class: "chip", style: "--c:var(--cache)" }, "Web")] : chips),
+      ...(hit.web ? [] : [el("span", { class: "source-score", title: "Score from the last stage that ran" }, hit.score.toFixed(3))]),
     ),
     text,
   );
@@ -233,6 +235,7 @@ export async function ask(query) {
 
   const started = performance.now();
   let text = "";
+  let webNote = "";
   let frame = 0;
   const paint = (streaming) => {
     cancelAnimationFrame(frame);
@@ -243,7 +246,7 @@ export async function ask(query) {
     const res = await fetch("/ask", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, mode: selectedMode(), use_cache: $("use-cache").checked }),
+      body: JSON.stringify({ query, mode: selectedMode(), use_cache: $("use-cache").checked, web: $("use-web").checked }),
       signal: controller.signal,
     });
     if (!res.ok) throw new Error(await httpError(res));
@@ -264,6 +267,7 @@ export async function ask(query) {
 
         if (event === "meta") {
           renderSources(data.sources, query);
+          webNote = data.web_error ? `${data.web_error} ` : "";
           if (data.cache === "hit") renderCacheHit(data.similarity, performance.now() - started);
           else renderTrace(data.timings_ms);
           $("answer").replaceChildren(el("p", { class: "waiting" }, "Writing an answer…"));
@@ -276,7 +280,7 @@ export async function ask(query) {
         } else if (event === "done") {
           paint(false);
           const first = data.first_token_ms ? `First token after ${ms(data.first_token_ms)}. ` : "";
-          $("answer-foot").textContent = `${first}Finished in ${ms(data.total_ms)}.`;
+          $("answer-foot").textContent = `${webNote}${first}Finished in ${ms(data.total_ms)}.`;
         }
       }
     }

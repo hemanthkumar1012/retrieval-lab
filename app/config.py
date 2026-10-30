@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     # seconds to wait for the next chunk from the model before giving up; must stay below the
     # platform's function limit so the page gets an error message instead of a dead stream
     llm_timeout_seconds: float = 40.0
+    tavily_api_key: str = ""
 
     # cosine similarity above which a cached answer is reused. 0.96 reuses about 96% of
     # paraphrases and wrongly serves about 6% of distinct questions (bench/cache_bench.py);

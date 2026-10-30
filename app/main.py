@@ -1,3 +1,4 @@
+import asyncio
 import hmac
 import json
 import logging
@@ -21,6 +22,7 @@ from .embeddings import embed_query
 from .ingest import ingest
 from .llm import LLMError, build_messages, stream_completion
 from .retrieval import MODES, retrieve
+from .web import web_search
 
 log = logging.getLogger("uvicorn.error")
 
@@ -83,6 +85,7 @@ class QueryRequest(BaseModel):
     mode: str = "hybrid_rerank"
     strategy: str = settings.default_strategy
     use_cache: bool = True
+    web: bool = False
 
 
 def _check(req: QueryRequest):
@@ -142,7 +145,9 @@ async def ask(req: QueryRequest):
         t0 = time.perf_counter()
         qvec = await run_in_threadpool(embed_query, req.query)
 
-        if req.use_cache:
+        # web answers go stale, so they neither read nor fill the cache
+        use_cache = req.use_cache and not req.web
+        if use_cache:
             hit = await run_in_threadpool(cache.lookup, qvec, req.strategy, req.mode)
             if hit:
                 yield _sse("meta", {"cache": "hit", "similarity": hit["cache_similarity"],
@@ -151,17 +156,30 @@ async def ask(req: QueryRequest):
                 yield _sse("done", {"total_ms": round((time.perf_counter() - t0) * 1000, 1)})
                 return
 
-        hits, timings = await run_in_threadpool(
-            retrieve, req.query, req.strategy, req.mode, req.k, qvec=qvec
-        )
+        retrieval_job = run_in_threadpool(retrieve, req.query, req.strategy, req.mode, req.k, qvec=qvec)
+        web_hits, web_error = [], None
+        if req.web:
+            async def fetch_web():
+                try:
+                    return await web_search(req.query), None
+                except httpx.HTTPError as e:
+                    log.warning("web search failed: %s", type(e).__name__)
+                    return [], "Web search was unavailable, so this answer uses the knowledge base only."
+
+            (hits, timings), (web_hits, web_error) = await asyncio.gather(retrieval_job, fetch_web())
+        else:
+            hits, timings = await retrieval_job
         sources = [_hit_json(h) for h in hits]
-        yield _sse("meta", {"cache": "miss", "sources": sources,
+        for w in web_hits:
+            sources.append({"chunk_id": None, "doc_id": w["title"], "score": 0.0, "ranks": {},
+                            "text": w["text"], "web": True, "url": w["url"], "title": w["title"]})
+        yield _sse("meta", {"cache": "miss", "sources": sources, "web_error": web_error,
                             "timings_ms": {k: round(v, 1) for k, v in timings.items()}})
 
         parts = []
         first = None
         try:
-            async for delta in stream_completion(build_messages(req.query, hits)):
+            async for delta in stream_completion(build_messages(req.query, hits, web_hits)):
                 if first is None:
                     first = (time.perf_counter() - t0) * 1000
                 parts.append(delta)
@@ -183,7 +201,7 @@ async def ask(req: QueryRequest):
             log.warning("model returned no text for model=%s", settings.llm_model)
             yield _sse("error", {"message": "The language model returned an empty answer."})
             return
-        if req.use_cache and answer and settings.llm_api_key:
+        if use_cache and answer and settings.llm_api_key:
             await run_in_threadpool(
                 cache.store, req.query, qvec, req.strategy, req.mode,
                 {"answer": answer, "sources": sources},

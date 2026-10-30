@@ -1,77 +1,85 @@
 # Deploying
 
-The code is ready to deploy. Nothing here has been run against a real host
-yet, so treat the first deploy as the test and check each step below.
+This is the setup behind the live demo: Supabase for the data, Vercel for the API and the page.
 
 ```
-browser ──> API container (FastAPI + 2 models) ──> Supabase Postgres (pgvector)
-                         └──> Redis (built into the container, or hosted)
+browser ──> Vercel function (FastAPI + two ONNX models) ──> Supabase Postgres
+                                                              documents, chunks (pgvector)
+                                                              semantic cache, rate limits
 ```
 
-**Where Vercel fits.** Not for the API. It loads two PyTorch models at startup and keeps a
-connection pool, which suits a long-running container rather than a per-request function.
-The API already serves the demo page at `/`, so a separate frontend is optional. If you do
-put one on Vercel, set `CORS_ORIGINS` to its URL.
+The models are int8 ONNX files in `models/`, so the function needs no PyTorch and the bundle stays
+well under Vercel's 500 MB limit (CI fails if it grows past 400 MB). The cache and the rate
+limiter use Postgres, so there is nothing else to host.
 
 ## 1. Database (Supabase)
 
-1. Create a project. In **Database → Extensions** enable `vector`.
+1. Create a project. In **Database → Extensions** enable `vector` (pgvector 0.8 or newer is
+   needed for iterative index scans).
 2. Open the **SQL editor**, paste `sql/init.sql`, run it. It also turns on row level security,
    so the public REST API and anon key cannot read or write these tables.
-3. **Connect** → copy the **Session pooler** string (port 5432). The direct connection is
-   IPv6-only on the free plan, which many hosts cannot reach. The transaction pooler (6543)
-   also works: the app disables prepared statements for it.
-4. Put your database password into the string and use it as `DATABASE_URL`.
+3. **Connect** → copy a **pooler** string. Use the **Session pooler** (port 5432) for loading
+   data from GitHub Actions or your machine, and the **Transaction pooler** (port 6543) for
+   Vercel. The direct connection is IPv6-only, which GitHub runners and many hosts cannot reach.
+   The app disables prepared statements, so both poolers work.
 
 ## 2. Load data
 
-From your own machine, pointed at Supabase:
+The **load-data** workflow loads the SciFact corpus with one chunking strategy:
 
-```bash
-export DATABASE_URL='postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres'
-python -m app.ingest docs.jsonl --strategy recursive_256
-```
+1. Repo **Settings → Secrets and variables → Actions → New repository secret**: name
+   `DATABASE_URL`, value the session pooler string with your password filled in.
+2. **Actions → load-data → Run workflow**. It takes about ten minutes and can be re-run, it skips
+   what is already stored.
 
-Ingest **one** strategy for the demo. The benchmark's six strategies store the corpus six
-times, and the free database is limited to 500 MB (at the time of writing). Check the size
-with `SELECT pg_size_pretty(pg_database_size(current_database()));`.
+Load **one** strategy for the demo. The benchmark's six strategies store the corpus six times and
+the free database is limited to 500 MB. `recursive_256` is 69 MB. To load your own documents,
+POST them to `/ingest` with the `X-Admin-Token` header, or run `python -m app.ingest docs.jsonl`.
 
-## 3. Redis
+## 3. API (Vercel)
 
-Nothing to set up on a single-container host. If `REDIS_URL` is **not set**, the image
-starts its own small Redis (64 MB, no persistence) next to the API. The cache and the rate
-limit counters are rebuildable, so losing them on a restart is fine.
-
-To use a hosted Redis instead (Upstash, Redis Cloud), set `REDIS_URL` to its `rediss://` URL.
-Do that if you run more than one API instance, so they share the cache and the limits.
-
-## 4. API host
-
-Any host that runs a Docker image: Render, Railway, Fly.io, or a Hugging Face Space
-(Docker SDK, free CPU, 16 GB RAM). The image honours `PORT`. The `deploy-space` workflow copies
-the repo into a Space on every push once `HF_TOKEN` (secret) and `HF_SPACE` (variable) are set. Models are baked into it, so cold starts do not
-download anything. Expect to need around 1 GB of RAM (two models plus PyTorch); measure it
-with `docker stats` and avoid 512 MB tiers.
+1. **Add New → Project**, import the GitHub repo. Leave the framework preset and root directory
+   alone. Vercel detects FastAPI from `app/main.py`.
+2. Before the first deploy, add these environment variables (mark the secrets **Sensitive**):
 
 | variable | value |
 |---|---|
-| `DATABASE_URL` | Supabase pooler string |
-| `REDIS_URL` | leave unset to use the built-in Redis, or a hosted `rediss://` URL |
+| `DATABASE_URL` | Supabase transaction pooler string (port 6543) |
 | `ADMIN_TOKEN` | long random string, required on `/ingest` and `DELETE /cache` |
+| `DB_POOL_MAX` | `3`, every function instance opens its own pool |
 | `RATE_LIMIT_PER_MINUTE` | `30` (per IP, on `/search` and `/ask`) |
-| `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | your provider; leave the key empty for retrieval-only |
-| `CORS_ORIGINS` | only if a frontend on another origin calls the API |
+| `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | your provider. Leave the key empty for retrieval-only |
+
+Leave `REDIS_URL` unset. That is what switches the cache and the rate limiter to Postgres.
+
+Vercel installs the packages listed in `pyproject.toml`, not `requirements.txt`. The Docker image
+uses `requirements.txt`, and a test checks that the two lists stay equal.
+
+Any OpenAI-compatible chat endpoint works. For Gemini use
+`LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai` and a current model name,
+since Google retires old ones for new keys. A wrong name shows up on the page as the provider's
+own error message.
 
 Set a spending cap with your LLM provider as well. The rate limit is per IP and best effort.
 
-## 5. Check it
+## 4. Check it
 
 ```bash
-curl https://<api-host>/health
-curl -X POST https://<api-host>/search -H 'content-type: application/json' \
+curl https://<your-app>.vercel.app/health
+curl -X POST https://<your-app>.vercel.app/search -H 'content-type: application/json' \
   -d '{"query": "does vitamin D reduce fracture risk", "mode": "hybrid_rerank"}'
-curl -X DELETE https://<api-host>/cache                                  # expect 401
-curl -X DELETE https://<api-host>/cache -H "X-Admin-Token: $ADMIN_TOKEN"  # expect 200
+curl -X DELETE https://<your-app>.vercel.app/cache                                  # expect 401
+curl -X DELETE https://<your-app>.vercel.app/cache -H "X-Admin-Token: $ADMIN_TOKEN"  # expect 200
 ```
 
-`/health` returns the chunk count, so `0` means step 2 pointed at a different database.
+`/health` returns the chunk count and which cache backend is active (`postgres` here), so a count
+of `0` means the loader pointed at a different database.
+
+If a request fails, **Logs** in the Vercel dashboard shows the Python traceback. The first request
+after a quiet period is slower while the function loads the models.
+
+## Running it somewhere else
+
+`docker compose up --build` starts Postgres, Redis and the API on a laptop or any Docker host.
+The image honours `PORT`, so Render, Railway or Fly.io work too. Set `REDIS_URL` to share one
+cache across several instances.

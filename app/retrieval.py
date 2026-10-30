@@ -102,7 +102,8 @@ def retrieve(
         if mode == "hybrid":
             hits = fused[:k]
         else:
-            hits = rerank(query, fused[:rerank_depth], k)
+            # the reranker must see at least as many chunks as the caller wants back
+            hits = rerank(query, fused[:max(rerank_depth, k)], k)
             lap("rerank", s)
 
     t["total"] = (time.perf_counter() - t0) * 1000

@@ -4,7 +4,7 @@
 flowchart LR
     C[Client] -->|POST /ask| API[FastAPI]
     API --> E[Embed query]
-    E --> SC{Semantic cache<br/>Redis}
+    E --> SC{Semantic cache<br/>Postgres or Redis}
     SC -- hit --> S[Stream cached answer]
     SC -- miss --> R[Retrieve]
     R --> D[Dense: pgvector HNSW]
@@ -45,6 +45,10 @@ is what lets the benchmark compare them on identical data without re-creating ta
 chunk. The benchmark collapses chunk hits to documents (first occurrence wins) before
 computing recall, MRR and nDCG.
 
+**One database for everything.** The semantic cache and the rate-limit counters are plain tables
+next to the documents (`semantic_cache`, `rate_limits`), so the live demo needs no Redis. Redis
+stays supported through `REDIS_URL`; `app/cache.py` picks the backend at startup.
+
 **Semantic cache scope.** Entries are keyed by chunking strategy and retrieval mode as well
 as by query embedding, so changing the retrieval configuration never serves a stale answer
 from a different one. Lookup is a linear scan over at most 2000 entries; beyond that it
@@ -58,8 +62,8 @@ breakdown so regressions can be pinned to a stage.
 
 - No `LLM_API_KEY`: `/ask` still returns retrieved sources and a notice instead of failing.
   Nothing is written to the cache in that case.
-- Cache entries expire after `CACHE_TTL_SECONDS`; the index sorted set is trimmed to the newest
-  2000 keys on every write.
+- Cache entries expire after `CACHE_TTL_SECONDS`, and every write trims the cache to the newest
+  2000 entries.
 - Re-ingesting a document replaces its chunks for that strategy only.
 
 ## Known limitations
@@ -68,7 +72,10 @@ breakdown so regressions can be pinned to a stage.
   truncate at 512 *wordpiece* tokens, which is usually a larger count for scientific text.
   The 512-token strategies can therefore be cut short at embedding time. Most SciFact
   abstracts are shorter than that, so the effect is small there, but it is not zero.
-- The benchmark reranks the top 100 fused candidates, the API defaults to 50. Latency
-  numbers from `make bench` describe the former.
-- The rate limiter is a fixed window per client IP and fails open if Redis is down.
+- The benchmark reranks the top 40 fused chunks (it needs 40 to end with 10 documents), the API
+  reranks 20. Latency numbers from `make bench` describe the former.
+- The models are int8-quantised. `models/PARITY.md` shows vectors stay close to the originals
+  (cosine 0.98), but only the SciFact benchmark says what that costs in recall.
+- The rate limiter is a fixed window per client IP and fails open if the cache database is down.
+- On a serverless host the first request after idle pays for loading the models.
 - `ts_rank_cd` is not BM25, so the `bm25` mode label is shorthand for "Postgres full-text".

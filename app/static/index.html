@@ -4,102 +4,114 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>retrieval-lab</title>
-<style>
-  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
-  form { display: flex; gap: .5rem; flex-wrap: wrap; }
-  input[type=text] { flex: 1 1 320px; padding: .5rem; }
-  select, button { padding: .5rem; }
-  #meta { color: #555; font-size: 13px; margin: 1rem 0 .5rem; }
-  #answer { white-space: pre-wrap; border-left: 3px solid #ccc; padding-left: .75rem; min-height: 1.5rem; }
-  details { margin: .5rem 0; }
-  summary { cursor: pointer; }
-  .score { color: #888; font-size: 12px; }
-</style>
+<meta name="description" content="Hybrid search over scientific abstracts: pgvector, Postgres full-text, rank fusion and a cross-encoder reranker, with every stage timed.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='6' width='24' height='5' rx='2.5' fill='%233157e0'/%3E%3Crect x='4' y='14' width='17' height='5' rx='2.5' fill='%23d98a00'/%3E%3Crect x='4' y='22' width='21' height='5' rx='2.5' fill='%23138a5e'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+<script type="module" src="/static/app.js"></script>
 </head>
 <body>
-<h1>retrieval-lab</h1>
-<form id="f">
-  <input type="text" id="q" placeholder="Ask something about the ingested corpus" required>
-  <select id="mode">
-    <option value="hybrid_rerank">hybrid + rerank</option>
-    <option value="hybrid">hybrid</option>
-    <option value="dense">dense</option>
-    <option value="bm25">lexical</option>
-  </select>
-  <button>Ask</button>
-</form>
-<div id="meta"></div>
-<div id="answer"></div>
-<div id="sources"></div>
 
-<script>
-const $ = id => document.getElementById(id);
+<header class="top">
+  <a class="brand" href="/" aria-label="retrieval-lab home">
+    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="4" y="6" width="24" height="5" rx="2.5" class="s-dense"/>
+      <rect x="4" y="14" width="17" height="5" rx="2.5" class="s-lexical"/>
+      <rect x="4" y="22" width="21" height="5" rx="2.5" class="s-rerank"/>
+    </svg>
+    <span>retrieval-lab</span>
+  </a>
+  <div class="top-right">
+    <span class="status" id="status" data-state="loading"><i></i><span id="status-text">Connecting</span></span>
+    <a class="top-link" href="https://github.com/hemanthkumar1012/retrieval-lab" rel="noopener">Source</a>
+  </div>
+</header>
 
-$("f").addEventListener("submit", async e => {
-  e.preventDefault();
-  $("answer").textContent = "";
-  $("sources").innerHTML = "";
-  $("meta").textContent = "retrieving...";
+<main>
+  <section class="intro">
+   <div class="intro-text">
+    <h1>Ask a question and see how each retriever answers it.</h1>
+    <p class="lede">
+      This searches 5,183 scientific abstracts (BEIR SciFact) stored in Postgres. Vector search
+      finds passages with similar meaning, full-text search finds the exact words, rank fusion
+      merges both lists, and a cross-encoder reorders the best twenty. Every stage is timed.
+    </p>
 
-  const res = await fetch("/ask", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ query: $("q").value, mode: $("mode").value }),
-  });
+    <form id="ask-form" autocomplete="off">
+      <div class="field">
+        <label class="sr-only" for="q">Your question</label>
+        <input id="q" name="q" type="text" maxlength="400" required
+               placeholder="Does vitamin D reduce cancer risk?" spellcheck="false">
+        <kbd class="hint" aria-hidden="true">/</kbd>
+        <button class="go" type="submit" id="go">Ask</button>
+      </div>
 
-  if (!res.ok) {
-    $("meta").textContent = `error ${res.status}: ${await res.text()}`;
-    return;
-  }
+      <div class="options">
+        <fieldset class="modes">
+          <legend class="sr-only">Retrieval mode</legend>
+          <label><input type="radio" name="mode" value="dense"><span title="Vector search only">Meaning</span></label>
+          <label><input type="radio" name="mode" value="bm25"><span title="Postgres full-text search only">Keywords</span></label>
+          <label><input type="radio" name="mode" value="hybrid"><span title="Meaning and keywords, merged with reciprocal rank fusion">Hybrid</span></label>
+          <label><input type="radio" name="mode" value="hybrid_rerank" checked><span title="Hybrid, then a cross-encoder reorders the top twenty">Hybrid + rerank</span></label>
+        </fieldset>
+        <label class="toggle">
+          <input type="checkbox" id="use-cache" checked>
+          <span>Use semantic cache</span>
+        </label>
+      </div>
+    </form>
 
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf("\n\n")) >= 0) {
-      handle(buf.slice(0, i));
-      buf = buf.slice(i + 2);
-    }
-  }
-});
+    <div class="examples" id="examples" aria-label="Example questions">
+      <button type="button">Does smoking cause lung cancer?</button>
+      <button type="button">Can aspirin prevent colorectal cancer?</button>
+      <button type="button">How does BRCA1 affect breast cancer risk?</button>
+      <button type="button">Do statins lower cholesterol in children?</button>
+    </div>
+   </div>
 
-function handle(block) {
-  const ev = /^event: (.*)$/m.exec(block)?.[1];
-  const raw = /^data: (.*)$/m.exec(block)?.[1];
-  if (!ev || raw === undefined) return;
-  const data = JSON.parse(raw);
+    <ol class="pipeline" aria-label="The four stages of a search">
+      <li style="--c: var(--dense); --i: 0"><b>Vector search</b><span>pgvector HNSW index, cosine similarity on 384-dimension embeddings</span></li>
+      <li style="--c: var(--lexical); --i: 1"><b>Full-text search</b><span>Postgres tsvector with OR-ed terms, ranked by ts_rank_cd</span></li>
+      <li style="--c: var(--fusion); --i: 2"><b>Rank fusion</b><span>Reciprocal rank fusion merges the two lists by position, not score</span></li>
+      <li style="--c: var(--rerank); --i: 3"><b>Rerank</b><span>A cross-encoder rereads the top twenty against the question</span></li>
+    </ol>
+  </section>
 
-  if (ev === "meta") {
-    const t = data.timings_ms ? Object.entries(data.timings_ms).map(([k, v]) => `${k} ${v}ms`).join(" · ") : "";
-    $("meta").textContent = data.cache === "hit"
-      ? `cache hit (similarity ${data.similarity})`
-      : `cache miss · ${t}`;
-    data.sources.forEach((s, i) => {
-      const d = document.createElement("details");
-      const sum = document.createElement("summary");
-      sum.textContent = `[${i + 1}] doc ${s.doc_id} `;
-      const sc = document.createElement("span");
-      sc.className = "score";
-      sc.textContent = `score ${s.score}`;
-      sum.appendChild(sc);
-      const p = document.createElement("p");
-      p.textContent = s.text;
-      d.append(sum, p);
-      $("sources").appendChild(d);
-    });
-  } else if (ev === "token") {
-    $("answer").textContent += data;
-  } else if (ev === "error") {
-    $("meta").textContent += ` · ${data.message}`;
-  } else if (ev === "done") {
-    const extra = data.first_token_ms ? ` · first token ${data.first_token_ms}ms` : "";
-    $("meta").textContent += ` · total ${data.total_ms}ms${extra}`;
-  }
-}
-</script>
+  <section class="results" id="results" hidden>
+    <div class="trace" id="trace" aria-live="polite"></div>
+
+    <div class="tabs" role="tablist" aria-label="Result views">
+      <button role="tab" id="tab-answer" aria-controls="panel-answer" aria-selected="true">Answer</button>
+      <button role="tab" id="tab-compare" aria-controls="panel-compare" aria-selected="false">Compare modes</button>
+    </div>
+
+    <div id="panel-answer" role="tabpanel" aria-labelledby="tab-answer" class="split">
+      <article class="answer" id="answer-card" aria-live="polite">
+        <div class="answer-body" id="answer"></div>
+        <p class="answer-foot" id="answer-foot"></p>
+      </article>
+      <aside class="sources" aria-label="Retrieved passages">
+        <h2>Retrieved passages</h2>
+        <ol id="sources"></ol>
+      </aside>
+    </div>
+
+    <div id="panel-compare" role="tabpanel" aria-labelledby="tab-compare" hidden>
+      <p class="compare-note">
+        The same question, run through all four modes. Lines connect a document that appears in
+        neighbouring columns, so you can see what fusion and reranking moved.
+      </p>
+      <div class="board-scroll"><div class="board" id="board"></div></div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <span>FastAPI on Vercel, Postgres and pgvector on Supabase, ONNX Runtime for the models.</span>
+</footer>
+
 </body>
 </html>

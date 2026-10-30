@@ -3,6 +3,7 @@
 Redis when REDIS_URL is set (docker compose, local development). Otherwise Postgres, the
 same Supabase database that holds the documents, which is what a serverless deploy uses.
 """
+
 from .config import settings
 
 if settings.redis_url:

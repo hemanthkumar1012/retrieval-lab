@@ -17,6 +17,7 @@ jobs:
           cache-dependency-path: requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
+      - run: node --check app/static/app.js
       - run: pytest -q
 
   # Runs the retrieval, cache and rate-limit SQL against a real pgvector, so a change that

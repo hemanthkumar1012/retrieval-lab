@@ -4,7 +4,7 @@ from typing import AsyncIterator
 import httpx
 
 from .config import settings
-from .retrieval import Hit
+from .fusion import Hit
 
 SYSTEM = (
     "You answer questions using only the numbered context passages. "

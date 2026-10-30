@@ -28,6 +28,9 @@ the lexical stage is one function (`lexical_search`) and can be swapped out.
 unrelated scales. Reciprocal rank fusion needs no calibration and has a single
 constant (k=60).
 
+**Lexical weight.** Fusion is weighted: the vector list counts 1.0 and the full-text list 0.1 by
+default. The benchmark sweep shows equal weights score below vector search alone on SciFact.
+
 **OR-ed lexical query.** `plainto_tsquery` ANDs every term, so a long natural-language
 question matches almost nothing. Terms are OR-ed and ranked instead.
 

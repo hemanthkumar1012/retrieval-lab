@@ -33,8 +33,9 @@ class Settings(BaseSettings):
     default_strategy: str = "recursive_256"
 
     # weight of the full-text list in rank fusion (the vector list is 1.0). Postgres full-text
-    # ranking is a weaker retriever than the vectors, so it should not vote equally.
-    lexical_weight: float = 1.0
+    # ranking is a much weaker retriever than the vectors on SciFact, and nDCG@10 rises steadily
+    # as its weight falls: 0.627 at 1.0, 0.678 at 0.25, 0.705 at 0.1 (README, Results).
+    lexical_weight: float = 0.1
 
     # HNSW candidate list size per scan batch (pgvector hnsw.ef_search)
     hnsw_ef_search: int = 100

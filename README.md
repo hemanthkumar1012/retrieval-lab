@@ -92,17 +92,38 @@ Equal fusion weights, before any tuning:
 | sentence_256 | hybrid | 0.487 | 0.683 | 0.755 | 0.593 | 0.626 | 67 | 157 |
 | sentence_256 | hybrid_rerank | 0.565 | 0.769 | 0.825 | 0.674 | 0.704 | 883 | 1292 |
 
+Then a second run swept the weight of the full-text list in rank fusion (`recursive_256`,
+the vector list always has weight 1). Dense and bm25 rows are repeated for reference; run to run
+the numbers move by about 0.005.
+
+| retrieval | lexical weight | R@1 | R@5 | R@10 | MRR@10 | nDCG@10 | p50 ms |
+|---|---|---|---|---|---|---|---|
+| dense | | 0.571 | 0.745 | 0.816 | 0.672 | 0.700 | 10 |
+| bm25 | | 0.273 | 0.495 | 0.582 | 0.379 | 0.426 | 60 |
+| hybrid | 1 | 0.474 | 0.713 | 0.757 | 0.593 | 0.627 | 85 |
+| hybrid | 0.5 | 0.507 | 0.730 | 0.779 | 0.626 | 0.656 | 86 |
+| hybrid | 0.25 | 0.528 | 0.743 | 0.805 | 0.644 | 0.678 | 87 |
+| hybrid | 0.1 | 0.576 | 0.762 | 0.818 | 0.677 | 0.705 | 86 |
+| hybrid_rerank | 1 | 0.567 | 0.771 | 0.826 | 0.670 | 0.703 | 1407 |
+| hybrid_rerank | 0.5 | 0.570 | 0.766 | 0.816 | 0.665 | 0.698 | 1385 |
+| hybrid_rerank | 0.25 | 0.567 | 0.760 | 0.817 | 0.664 | 0.697 | 1387 |
+| hybrid_rerank | 0.1 | 0.573 | 0.755 | 0.816 | 0.668 | 0.700 | 1398 |
+
 What this says:
 
 - **Vector search is the strong retriever here.** nDCG@10 is about 0.70 with the int8 model, close to
   the published figure for the full-precision bge-small on SciFact, so quantisation costs little.
-- **Plain hybrid is worse than vectors alone** (0.617 against 0.695). The Postgres full-text stage is
-  weak (nDCG 0.43): `ts_rank_cd` has no inverse document frequency, so common words count as much as
-  rare ones, and equal-weight fusion lets that list drag the good one down. Real BM25 scores
-  around 0.67 on this dataset. The `lexical_weight` setting and the benchmark's
-  `--lexical-weights` sweep exist to measure how much a lower weight recovers.
-- **The reranker is what earns its latency:** +0.012 nDCG and +0.04 recall@5 over vectors, for
-  about 0.8 s on two shared cores. Chunking strategy matters much less than the retrieval mode.
+- **The Postgres full-text stage is weak** (nDCG 0.43). `ts_rank_cd` has no inverse document
+  frequency, so common words count as much as rare ones. Real BM25 scores around 0.67 on this
+  dataset. With equal weights it drags fusion below vector search alone (0.627 against 0.700).
+- **Turning its weight down fixes that, but it never beats vectors by much.** At 0.1 hybrid reaches
+  0.705, a tie with dense within run-to-run noise, so the default is `LEXICAL_WEIGHT=0.1`. In
+  practice the full-text list now acts as a tie-breaker. A real BM25 stage is the next thing to try.
+- **The reranker helps recall, not ranking quality.** It lifts recall@5 from 0.745 to 0.77 (about
+  two points) and leaves nDCG@10 flat at about 0.70, for 1 to 1.4 seconds on two shared cores. It also
+  makes the fusion weight irrelevant, because it reorders the top candidates anyway. Whether that is
+  worth the latency depends on the use. On this dataset it is a small gain.
+- Chunking strategy matters much less than the retrieval mode.
 
 ## Semantic cache
 

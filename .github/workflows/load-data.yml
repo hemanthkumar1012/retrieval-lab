@@ -25,4 +25,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DB_POOL_MAX: "4"
-        run: python -m bench.load_scifact --strategy "${{ inputs.strategy }}"
+        run: |
+          if ! python -m bench.load_scifact --strategy "${{ inputs.strategy }}" > load.log 2>&1; then
+            # the runner log is not readable from outside; surface the tail as an annotation,
+            # with the connection string scrubbed
+            tail -n 15 load.log | sed "s|$DATABASE_URL|<DATABASE_URL>|g" | sed -E 's|://[^@ ]*@|://<redacted>@|g' \
+              | python -c "import sys,urllib.parse; print('::error title=load failed::' + sys.stdin.read().replace('%','%25').replace('\n','%0A'))"
+            exit 1
+          fi
+          cat load.log

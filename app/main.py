@@ -167,6 +167,9 @@ async def ask(req: QueryRequest):
         except LLMError as e:
             yield _sse("error", {"message": str(e)})
             return
+        except httpx.TimeoutException:
+            yield _sse("error", {"message": "The language model did not answer in time. Try again."})
+            return
         except httpx.HTTPError as e:
             # sources were already sent; tell the client instead of dropping the stream
             status = getattr(getattr(e, "response", None), "status_code", None)
@@ -174,6 +177,10 @@ async def ask(req: QueryRequest):
             return
 
         answer = "".join(parts)
+        if not answer:
+            log.warning("model returned no text for model=%s", settings.llm_model)
+            yield _sse("error", {"message": "The language model returned an empty answer."})
+            return
         if req.use_cache and answer and settings.llm_api_key:
             await run_in_threadpool(
                 cache.store, req.query, qvec, req.strategy, req.mode,

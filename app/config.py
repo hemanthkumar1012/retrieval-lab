@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://api.openai.com/v1"
     llm_api_key: str = ""
     llm_model: str = "gpt-4o-mini"
+    # sent as `reasoning_effort` when set ("low" keeps Gemini's thinking models quick).
+    # Leave empty for endpoints that reject the field, such as OpenAI's chat models.
+    llm_reasoning_effort: str = ""
+    # seconds to wait for the next chunk from the model before giving up; must stay below the
+    # platform's function limit so the page gets an error message instead of a dead stream
+    llm_timeout_seconds: float = 40.0
 
     # cosine similarity above which a cached answer is reused
     cache_threshold: float = 0.92

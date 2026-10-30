@@ -32,8 +32,11 @@ async def stream_completion(messages: list[dict]) -> AsyncIterator[str]:
 
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
     body = {"model": settings.llm_model, "messages": messages, "stream": True, "temperature": 0.1}
+    if settings.llm_reasoning_effort:
+        body["reasoning_effort"] = settings.llm_reasoning_effort
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    timeout = httpx.Timeout(settings.llm_timeout_seconds, connect=10)
+    async with httpx.AsyncClient(timeout=timeout) as client:
         async with client.stream(
             "POST", f"{settings.llm_base_url.rstrip('/')}/chat/completions", headers=headers, json=body
         ) as resp:

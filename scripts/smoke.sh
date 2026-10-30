@@ -11,7 +11,7 @@ QUERY="does vitamin D reduce fracture risk"
 curl -sf "$BASE/health" >/dev/null
 # the page and its scripts are served by the API itself
 curl -sf "$BASE/" | grep -q "retrieval-lab"
-for f in app.js styles.css; do curl -sf "$BASE/static/$f" >/dev/null; done
+for f in app.js search.js benchmarks.js data.js dom.js styles.css; do curl -sf "$BASE/static/$f" >/dev/null; done
 
 curl -sf -X POST "$BASE/ingest" -H 'content-type: application/json' -d '{
   "strategy": "'"$STRATEGY"'",

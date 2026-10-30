@@ -4,19 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>retrieval-lab</title>
-<meta name="description" content="Hybrid search over scientific abstracts: pgvector, Postgres full-text, rank fusion and a cross-encoder reranker, with every stage timed.">
+<meta name="description" content="Hybrid search over scientific abstracts: pgvector, Postgres full-text, rank fusion and a cross-encoder reranker, with every stage timed and benchmarked.">
 <meta name="color-scheme" content="light dark">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='6' width='24' height='5' rx='2.5' fill='%233157e0'/%3E%3Crect x='4' y='14' width='17' height='5' rx='2.5' fill='%23d98a00'/%3E%3Crect x='4' y='22' width='21' height='5' rx='2.5' fill='%23138a5e'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
 <link rel="stylesheet" href="/static/styles.css">
+<script>
+  // set the saved theme before first paint so a dark choice does not flash light
+  try {
+    const t = JSON.parse(localStorage.getItem("retrieval-lab.theme"));
+    if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  } catch (e) { /* storage unavailable, follow the system theme */ }
+</script>
 <script type="module" src="/static/app.js"></script>
 </head>
 <body>
 
 <header class="top">
-  <a class="brand" href="/" aria-label="retrieval-lab home">
+  <a class="brand" href="#/" aria-label="retrieval-lab home">
     <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
       <rect x="4" y="6" width="24" height="5" rx="2.5" class="s-dense"/>
       <rect x="4" y="14" width="17" height="5" rx="2.5" class="s-lexical"/>
@@ -24,13 +31,19 @@
     </svg>
     <span>retrieval-lab</span>
   </a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#/" aria-current="page">Search</a>
+    <a href="#/benchmarks">Benchmarks</a>
+  </nav>
   <div class="top-right">
     <span class="status" id="status" data-state="loading"><i></i><span id="status-text">Connecting</span></span>
+    <button class="theme" id="theme" type="button">Auto</button>
     <a class="top-link" href="https://github.com/hemanthkumar1012/retrieval-lab" rel="noopener">Source</a>
   </div>
 </header>
 
 <main>
+<div id="view-search">
   <section class="intro">
    <div class="intro-text">
     <h1>Ask a question and see how each retriever answers it.</h1>
@@ -52,10 +65,10 @@
       <div class="options">
         <fieldset class="modes">
           <legend class="sr-only">Retrieval mode</legend>
-          <label><input type="radio" name="mode" value="dense"><span title="Vector search only">Meaning</span></label>
-          <label><input type="radio" name="mode" value="bm25"><span title="Postgres full-text search only">Keywords</span></label>
-          <label><input type="radio" name="mode" value="hybrid"><span title="Meaning and keywords, merged with reciprocal rank fusion">Hybrid</span></label>
-          <label><input type="radio" name="mode" value="hybrid_rerank" checked><span title="Hybrid, then a cross-encoder reorders the top twenty">Hybrid + rerank</span></label>
+          <label><input type="radio" name="mode" value="dense"><span title="Vector search only (key 1)">Meaning</span></label>
+          <label><input type="radio" name="mode" value="bm25"><span title="Postgres full-text search only (key 2)">Keywords</span></label>
+          <label><input type="radio" name="mode" value="hybrid"><span title="Meaning and keywords, merged with reciprocal rank fusion (key 3)">Hybrid</span></label>
+          <label><input type="radio" name="mode" value="hybrid_rerank" checked><span title="Hybrid, then a cross-encoder reorders the top twenty (key 4)">Hybrid + rerank</span></label>
         </fieldset>
         <label class="toggle">
           <input type="checkbox" id="use-cache" checked>
@@ -64,12 +77,13 @@
       </div>
     </form>
 
-    <div class="examples" id="examples" aria-label="Example questions">
+    <div class="chips" id="examples" aria-label="Example questions">
       <button type="button">Does smoking cause lung cancer?</button>
       <button type="button">Can aspirin prevent colorectal cancer?</button>
       <button type="button">How does BRCA1 affect breast cancer risk?</button>
       <button type="button">Do statins lower cholesterol in children?</button>
     </div>
+    <div class="chips history" id="history" aria-label="Recent questions" hidden></div>
    </div>
 
     <ol class="pipeline" aria-label="The four stages of a search">
@@ -86,6 +100,7 @@
     <div class="tabs" role="tablist" aria-label="Result views">
       <button role="tab" id="tab-answer" aria-controls="panel-answer" aria-selected="true">Answer</button>
       <button role="tab" id="tab-compare" aria-controls="panel-compare" aria-selected="false">Compare modes</button>
+      <button class="share" id="share" type="button">Copy link</button>
     </div>
 
     <div id="panel-answer" role="tabpanel" aria-labelledby="tab-answer" class="split">
@@ -105,12 +120,69 @@
         neighbouring columns, so you can see what fusion and reranking moved.
       </p>
       <div class="board-scroll"><div class="board" id="board"></div></div>
+      <div class="overlap" id="overlap"></div>
     </div>
   </section>
+</div>
+
+<div id="view-benchmarks" hidden>
+  <section class="page-head">
+    <h1>What the benchmarks say</h1>
+    <p class="lede">
+      Retrieval quality was measured on BEIR SciFact: 300 scientific claims, each with the abstracts
+      that support or contradict it. These are the real numbers behind the settings this demo runs
+      with, and a few of them changed the design.
+    </p>
+    <p class="note" id="run-note"></p>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Which retriever finds the right abstracts</h2>
+      <div class="switch" id="metric-switch" role="group" aria-label="Metric"></div>
+    </div>
+    <ol class="bars" id="mode-bars"></ol>
+    <p class="note">Vector search is the strong retriever. The Postgres full-text stage is much weaker on its own, and the reranker adds recall rather than ranking quality. The column on the right is median latency.</p>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Turning down the full-text list</h2></div>
+    <p class="lede small">With equal weights, fusing in the weak full-text list pulls hybrid search below vector search alone. Lowering its weight recovers that, so the demo runs at 0.1. The reranker makes the weight irrelevant.</p>
+    <div class="chart" id="weight-chart"></div>
+    <ul class="legend" id="weight-legend"></ul>
+    <p class="readout" id="weight-readout" aria-live="polite"></p>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Choosing the semantic cache threshold</h2></div>
+    <p class="lede small">A cached answer is reused when a new question is this similar to an old one. Too low and different questions get the wrong answer. Too high and nothing ever hits. Drag to see the trade-off.</p>
+    <div class="chart" id="cache-chart"></div>
+    <ul class="legend" id="cache-legend"></ul>
+    <label class="slider"><span class="sr-only">Similarity threshold</span><input id="cache-slider" type="range" min="0" max="9" step="1" value="6"></label>
+    <p class="readout" id="cache-readout" aria-live="polite"></p>
+  </section>
+
+  <section class="duo">
+    <div class="card">
+      <div class="card-head"><h2>Shrinking the models</h2></div>
+      <p class="lede small">Both models run as int8 ONNX files, so the whole API fits in one serverless function with no PyTorch.</p>
+      <div class="facts" id="parity"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Chunking barely matters</h2></div>
+      <p class="lede small">nDCG@10 for three ways of cutting abstracts into passages. The differences are about the size of run-to-run noise.</p>
+      <table class="mini">
+        <thead><tr><td></td><th scope="col">Vector</th><th scope="col">Rerank</th></tr></thead>
+        <tbody id="chunking"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
 </main>
 
 <footer class="foot">
   <span>FastAPI on Vercel, Postgres and pgvector on Supabase, ONNX Runtime for the models.</span>
+  <span class="keys">Keys: <kbd>/</kbd> search, <kbd>1</kbd> to <kbd>4</kbd> choose a mode</span>
 </footer>
 
 </body>

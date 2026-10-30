@@ -9,7 +9,9 @@ retrieval modes on BEIR SciFact and help pick a safe cache threshold.
 
 **Live demo: https://retrieval-lab1.vercel.app** (5,183 SciFact abstracts). Ask a question, watch
 each stage's time, then open *Compare modes* to see how meaning search, keyword search, fusion
-and reranking order the same results.
+and reranking order the same results. The *Benchmarks* page charts the measured results below,
+including a draggable view of the semantic cache trade-off. Questions have shareable links
+(`/?q=...&mode=hybrid`), and keys `/` and `1` to `4` focus the search box and pick a mode.
 
 ## Stack
 
@@ -17,7 +19,7 @@ Python 3.12, FastAPI, Postgres + pgvector 0.8 (HNSW) on Supabase, ONNX Runtime w
 models (no PyTorch at runtime), deployed as one Vercel function. The semantic cache and the
 rate limiter live in the same Postgres database; with `REDIS_URL` set they use Redis instead
 (that is what `docker compose` does). The front end is plain HTML, CSS and JavaScript served by
-the API, no build step.
+the API, no build step. It is a few small ES modules (`app/static/*.js`) and hand-drawn SVG charts.
 
 ## How retrieval works
 

@@ -312,8 +312,8 @@ async function ask(query) {
           text += data;
           paint(true);
         } else if (event === "error") {
-          const notice = el("p", { class: "notice", role: "alert" }, data.message);
-          $("answer").prepend(notice);
+          $("answer").querySelector(".waiting")?.remove();
+          $("answer").prepend(el("p", { class: "notice", role: "alert" }, data.message));
         } else if (event === "done") {
           paint(false);
           const first = data.first_token_ms ? `First token after ${ms(data.first_token_ms)}. ` : "";

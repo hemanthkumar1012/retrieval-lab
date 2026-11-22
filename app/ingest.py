@@ -3,6 +3,7 @@ import json
 import sys
 from typing import Iterable
 
+from . import cache
 from .chunking import chunk
 from .db import close_pool, conn, open_pool
 from .embeddings import embed_docs
@@ -19,6 +20,10 @@ def ingest(docs: Iterable[dict], strategy: str, batch_docs: int = 64) -> int:
             batch = []
     if batch:
         total += _flush(batch, strategy)
+    if total:
+        # Documents changed, so cached answers may now be stale. Clear them all:
+        # the cache is small (at most 2,000 entries) and rebuilds on the next questions.
+        cache.clear()
     return total
 
 

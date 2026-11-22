@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS chunks_emb_idx ON chunks USING hnsw (embedding vector
 -- Semantic cache and rate-limit counters, used when REDIS_URL is not set (serverless deploys).
 CREATE TABLE IF NOT EXISTS semantic_cache (
     id         BIGSERIAL PRIMARY KEY,
-    scope      TEXT NOT NULL,          -- "<strategy>|<mode>": entries never cross retrieval configs
+    scope      TEXT NOT NULL,          -- "<tenant>|<strategy>|<mode>": never crosses tenants or configs
     query      TEXT NOT NULL,
     embedding  VECTOR(384) NOT NULL,
     payload    JSONB NOT NULL,

@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import cache
+from .cache_scope import DEFAULT_TENANT, TENANT_PATTERN
 from .chunking import STRATEGIES
 from .config import settings
 from .db import close_pool, conn, open_pool
@@ -86,6 +87,8 @@ class QueryRequest(BaseModel):
     strategy: str = settings.default_strategy
     use_cache: bool = True
     web: bool = False
+    # cached answers are never shared across tenants (see cache_scope.py)
+    tenant: str = Field(DEFAULT_TENANT, pattern=TENANT_PATTERN)
 
 
 def _check(req: QueryRequest):
@@ -125,7 +128,8 @@ def ingest_docs(req: IngestRequest):
     if req.strategy not in STRATEGIES:
         raise HTTPException(400, f"unknown strategy {req.strategy!r}")
     n = ingest([d.model_dump() for d in req.docs], req.strategy)
-    return {"docs": len(req.docs), "chunks": n, "strategy": req.strategy}
+    # ingest() clears the semantic cache whenever documents change
+    return {"docs": len(req.docs), "chunks": n, "strategy": req.strategy, "cache_cleared": n > 0}
 
 
 @app.post("/search", dependencies=[Depends(rate_limit)])
@@ -148,7 +152,7 @@ async def ask(req: QueryRequest):
         # web answers go stale, so they neither read nor fill the cache
         use_cache = req.use_cache and not req.web
         if use_cache:
-            hit = await run_in_threadpool(cache.lookup, qvec, req.strategy, req.mode)
+            hit = await run_in_threadpool(cache.lookup, qvec, req.strategy, req.mode, req.tenant)
             if hit:
                 yield _sse("meta", {"cache": "hit", "similarity": hit["cache_similarity"],
                                     "sources": hit["sources"]})
@@ -204,7 +208,7 @@ async def ask(req: QueryRequest):
         if use_cache and answer and settings.llm_api_key:
             await run_in_threadpool(
                 cache.store, req.query, qvec, req.strategy, req.mode,
-                {"answer": answer, "sources": sources},
+                {"answer": answer, "sources": sources}, req.tenant,
             )
         yield _sse("done", {"total_ms": round((time.perf_counter() - t0) * 1000, 1),
                             "first_token_ms": round(first, 1) if first else None})

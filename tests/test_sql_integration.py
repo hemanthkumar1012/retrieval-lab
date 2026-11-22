@@ -127,6 +127,18 @@ def test_postgres_cache_hit_miss_and_scope(vectors):
     assert cache_pg.clear() == 1
 
 
+def test_postgres_cache_never_crosses_tenants(vectors):
+    cache_pg.clear()
+    q = vectors["a"][0]
+    cache_pg.store("what is x", q, "recursive_256", "hybrid", {"answer": "acme only", "sources": []},
+                   tenant="acme")
+
+    assert cache_pg.lookup(q, "recursive_256", "hybrid", tenant="acme")["answer"] == "acme only"
+    assert cache_pg.lookup(q, "recursive_256", "hybrid", tenant="globex") is None
+    assert cache_pg.lookup(q, "recursive_256", "hybrid") is None  # default tenant "public"
+    assert cache_pg.clear() == 1
+
+
 def test_postgres_rate_limiter(vectors):
     results = [allow_pg("rl:test-ip", 3, now=1000) for _ in range(5)]
     assert results == [True, True, True, False, False]

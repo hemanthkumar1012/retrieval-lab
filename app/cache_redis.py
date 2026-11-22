@@ -13,6 +13,7 @@ from typing import Optional
 import numpy as np
 import redis
 
+from .cache_scope import scope_for
 from .config import settings
 
 _r = redis.Redis.from_url(settings.redis_url)
@@ -21,12 +22,12 @@ INDEX_KEY = "semcache:index"
 MAX_ENTRIES = 2000
 
 
-def _key(strategy: str, mode: str, q: str) -> str:
-    h = hashlib.sha1(f"{strategy}|{mode}|{q}".encode()).hexdigest()
+def _key(scope: str, q: str) -> str:
+    h = hashlib.sha1(f"{scope}|{q}".encode()).hexdigest()
     return f"semcache:{h}"
 
 
-def lookup(qvec: np.ndarray, strategy: str, mode: str) -> Optional[dict]:
+def lookup(qvec: np.ndarray, strategy: str, mode: str, tenant: str | None = None) -> Optional[dict]:
     keys = _r.zrevrange(INDEX_KEY, 0, MAX_ENTRIES - 1)
     if not keys:
         return None
@@ -36,11 +37,11 @@ def lookup(qvec: np.ndarray, strategy: str, mode: str) -> Optional[dict]:
         pipe.hmget(k, "vec", "scope")
     rows = pipe.execute()
 
-    scope = f"{strategy}|{mode}".encode()
+    scope = scope_for(strategy, mode, tenant).encode()
     best, best_key = -1.0, None
     for k, (raw, sc) in zip(keys, rows, strict=True):
         if raw is None or sc != scope:
-            continue  # expired or from a different retrieval config
+            continue  # expired, another tenant or another retrieval config
         v = np.frombuffer(raw, dtype=np.float32)
         sim = float(np.dot(qvec, v))  # both L2-normalised
         if sim > best:
@@ -57,14 +58,16 @@ def lookup(qvec: np.ndarray, strategy: str, mode: str) -> Optional[dict]:
     return out
 
 
-def store(query: str, qvec: np.ndarray, strategy: str, mode: str, payload: dict) -> None:
-    key = _key(strategy, mode, query)
+def store(query: str, qvec: np.ndarray, strategy: str, mode: str, payload: dict,
+          tenant: str | None = None) -> None:
+    scope = scope_for(strategy, mode, tenant)
+    key = _key(scope, query)
     pipe = _r.pipeline()
     pipe.hset(
         key,
         mapping={
             "vec": qvec.astype(np.float32).tobytes(),
-            "scope": f"{strategy}|{mode}",
+            "scope": scope,
             "payload": json.dumps(payload),
         },
     )
